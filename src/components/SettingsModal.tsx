@@ -118,13 +118,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       localStorage.getItem('efa_patron_pin') ||
       '1234';
 
-    const email = patron.email && patron.email.includes('@') && !patron.email.includes('@efa.local') && !patron.email.includes('@efa-aconta.com')
-      ? patron.email
-      : `patron${Date.now()}@gmail.com`;
+    const idDigits = (patron.id || '').replace(/\D/g, '') || Date.now();
+    let cleanEmail = `patron${idDigits}@gmail.com`;
 
-    let cleanEmail = email;
-    if (!cleanEmail.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/) || cleanEmail.includes('@efa-aconta.com') || cleanEmail.includes('@efa.local')) {
-      cleanEmail = `patron${Date.now()}@gmail.com`;
+    if (patron.email && patron.email.includes('@') && !patron.email.includes('@efa-aconta.com') && !patron.email.includes('@efa.local')) {
+      if (patron.email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+        cleanEmail = patron.email;
+      }
     }
 
     const password = pinToUse + 'Efa2024!';

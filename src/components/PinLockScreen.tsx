@@ -151,32 +151,18 @@ export const PinLockScreen: React.FC<PinLockScreenProps> = ({
 
           // Auth avec PIN dans Supabase avec email propre et valide
           try {
-            const email = patron.email && patron.email.includes('@') && !patron.email.includes('@efa.local') && !patron.email.includes('@efa-aconta.com')
-              ? patron.email 
-              : `patron${Date.now()}@gmail.com`;
+            const idDigits = (patron.id || '').replace(/\D/g, '') || Date.now();
+            let cleanEmail = `patron${idDigits}@gmail.com`;
 
-            // Si l'email est encore invalide ou utilise un faux domaine, génère un email propre
-            let cleanEmail = email;
-            if (!cleanEmail.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/) || cleanEmail.includes('@efa-aconta.com') || cleanEmail.includes('@efa.local')) {
-              cleanEmail = `patron${Date.now()}@gmail.com`;
+            if (patron.email && patron.email.includes('@') && !patron.email.includes('@efa-aconta.com') && !patron.email.includes('@efa.local')) {
+              if (patron.email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+                cleanEmail = patron.email;
+              }
             }
 
             const password = pinToVerify + 'Efa2024!';
 
-            console.log("Email utilisé pour auth:", cleanEmail);
-
-            const safeAlert = (msg: string) => {
-              console.log('[Auth PIN Debug]', msg);
-              try {
-                if (typeof window !== 'undefined' && typeof window.alert === 'function') {
-                  window.alert(msg);
-                }
-              } catch (e) {
-                // Log si alert bloqué par sandbox iframe
-              }
-            };
-
-            safeAlert(`Tentative auth... (${cleanEmail})`);
+            console.log('[Auth PIN] Email utilisé pour auth:', cleanEmail);
 
             let authUser: any = null;
             const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
@@ -194,7 +180,6 @@ export const PinLockScreen: React.FC<PinLockScreenProps> = ({
 
               if (signUpError) {
                 console.warn('[Auth PIN] Échec signUp:', signUpError.message);
-                safeAlert(`Echec: ${signUpError.message}`);
               } else {
                 authUser = signUpData?.user;
                 const { data: retrySignIn } = await supabase.auth.signInWithPassword({
@@ -210,9 +195,9 @@ export const PinLockScreen: React.FC<PinLockScreenProps> = ({
             }
 
             if (authUser) {
-              safeAlert(`Auth réussie UID: ${authUser.id}`);
+              console.log('[Auth PIN] Auth réussie UID:', authUser.id);
               try {
-                // Dans la table patrons, update aussi l'email avec cleanEmail si l'ancien était @efa.local
+                // Dans la table patrons, update aussi l'email avec cleanEmail si l'ancien était @efa.local ou @efa-aconta.com
                 await supabase
                   .from('patrons')
                   .update({ auth_id: authUser.id, email: cleanEmail })
@@ -226,12 +211,7 @@ export const PinLockScreen: React.FC<PinLockScreenProps> = ({
               }
             }
           } catch (authException: any) {
-            console.error('[Auth PIN] Exception:', authException);
-            try {
-              if (typeof window !== 'undefined' && typeof window.alert === 'function') {
-                window.alert(`Echec: ${authException?.message || authException}`);
-              }
-            } catch (e) {}
+            console.warn('[Auth PIN] Exception auth silencieuse:', authException?.message || authException);
           }
 
           onUnlock(unlockedUser);

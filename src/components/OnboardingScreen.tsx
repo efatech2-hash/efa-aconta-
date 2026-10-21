@@ -153,10 +153,11 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete, 
       const cleanDigits = phoneNumber.replace(/[\s\-\.]/g, '');
       const phoneFull = phoneCountry === 'Autre' ? cleanDigits : `${phoneCountry}${cleanDigits}`;
 
+      const idDigits = patronId.replace(/\D/g, '') || Date.now();
       const newPatron: Patron = {
         id: patronId,
         nom: nom.trim(),
-        email: `patron${Date.now()}@gmail.com`,
+        email: `patron${idDigits}@gmail.com`,
         telephone: `${phoneCountry} ${cleanDigits}`,
         phone_country: phoneCountry,
         phone_number: cleanDigits,

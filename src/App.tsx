@@ -82,10 +82,11 @@ function EfaAcontaOnboarding({
     const now = new Date();
     const trialEnd = new Date(now.getTime() + 21 * 24 * 60 * 60 * 1000);
 
+    const patronTimestamp = Date.now();
     const newPatron: Patron = {
-      id: 'patron-' + Date.now(),
+      id: 'patron-' + patronTimestamp,
       nom: nomPatron || 'Patron',
-      email: `patron${Date.now()}@gmail.com`,
+      email: `patron${patronTimestamp}@gmail.com`,
       telephone: '',
       phone_country: '+228',
       phone_number: '',
@@ -338,7 +339,8 @@ export default function App() {
           patronNeedsUpdate = true;
         }
         if (!currentPatron.email || currentPatron.email.includes('@efa-aconta.com') || currentPatron.email.includes('@efa.local')) {
-          currentPatron.email = `patron${Date.now()}@gmail.com`;
+          const idDigits = (currentPatron.id || '').replace(/\D/g, '') || Date.now();
+          currentPatron.email = `patron${idDigits}@gmail.com`;
           patronNeedsUpdate = true;
         }
         if (patronNeedsUpdate) {
