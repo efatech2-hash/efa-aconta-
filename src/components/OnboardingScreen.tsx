@@ -156,6 +156,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete, 
       const newPatron: Patron = {
         id: patronId,
         nom: nom.trim(),
+        email: `patron${Date.now()}@gmail.com`,
         telephone: `${phoneCountry} ${cleanDigits}`,
         phone_country: phoneCountry,
         phone_number: cleanDigits,

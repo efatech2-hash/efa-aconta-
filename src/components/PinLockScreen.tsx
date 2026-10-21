@@ -151,14 +151,14 @@ export const PinLockScreen: React.FC<PinLockScreenProps> = ({
 
           // Auth avec PIN dans Supabase avec email propre et valide
           try {
-            const email = patron.email && patron.email.includes('@') && !patron.email.includes('@efa.local') 
+            const email = patron.email && patron.email.includes('@') && !patron.email.includes('@efa.local') && !patron.email.includes('@efa-aconta.com')
               ? patron.email 
-              : `${patron.id}@efa-aconta.com`.toLowerCase().replace(/[^a-z0-9@.-]/g, '');
+              : `patron${Date.now()}@gmail.com`;
 
-            // Si l'email est encore invalide, génère un email propre
+            // Si l'email est encore invalide ou utilise un faux domaine, génère un email propre
             let cleanEmail = email;
-            if (!cleanEmail.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
-              cleanEmail = `patron.${patron.id.substring(0,8)}@efa-aconta.com`;
+            if (!cleanEmail.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/) || cleanEmail.includes('@efa-aconta.com') || cleanEmail.includes('@efa.local')) {
+              cleanEmail = `patron${Date.now()}@gmail.com`;
             }
 
             const password = pinToVerify + 'Efa2024!';

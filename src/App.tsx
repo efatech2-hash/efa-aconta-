@@ -85,6 +85,7 @@ function EfaAcontaOnboarding({
     const newPatron: Patron = {
       id: 'patron-' + Date.now(),
       nom: nomPatron || 'Patron',
+      email: `patron${Date.now()}@gmail.com`,
       telephone: '',
       phone_country: '+228',
       phone_number: '',
@@ -334,6 +335,10 @@ export default function App() {
         }
         if ((currentPatron.subscription_status === 'trial' || !currentPatron.subscription_status) && currentPatron.trial_end_date && now > new Date(currentPatron.trial_end_date)) {
           currentPatron.subscription_status = 'expired';
+          patronNeedsUpdate = true;
+        }
+        if (!currentPatron.email || currentPatron.email.includes('@efa-aconta.com') || currentPatron.email.includes('@efa.local')) {
+          currentPatron.email = `patron${Date.now()}@gmail.com`;
           patronNeedsUpdate = true;
         }
         if (patronNeedsUpdate) {
