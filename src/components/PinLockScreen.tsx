@@ -99,13 +99,6 @@ export const PinLockScreen: React.FC<PinLockScreenProps> = ({
         }
       }
 
-      // Vide le cache auth pour forcer la reconnexion et nettoyer un ancien état corrompu
-      try {
-        await supabase.auth.signOut();
-      } catch (signOutErr) {
-        console.warn('[PinLock] Clean cache auth signOut:', signOutErr);
-      }
-
       try {
         let isMatch = false;
 
@@ -149,69 +142,18 @@ export const PinLockScreen: React.FC<PinLockScreenProps> = ({
           }
           speakFrench(`Bonjour ${selectedUser.nom}, session déverrouillée`);
 
-          // Auth avec PIN dans Supabase avec email propre et valide
+          // Mise à jour de l'activité de cet appareil
           try {
-            const idDigits = (patron.id || '').replace(/\D/g, '') || Date.now();
-            let cleanEmail = `patron${idDigits}@gmail.com`;
-
-            if (patron.email && patron.email.includes('@') && !patron.email.includes('@efa-aconta.com') && !patron.email.includes('@efa.local')) {
-              if (patron.email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
-                cleanEmail = patron.email;
-              }
+            const currentDeviceId = localStorage.getItem('efa_device_id');
+            if (currentDeviceId) {
+              await supabase
+                .from('efa_devices')
+                .update({ last_seen: new Date().toISOString() })
+                .eq('boutique_id', patron.id)
+                .eq('device_id', currentDeviceId);
             }
-
-            const password = pinToVerify + 'Efa2024!';
-
-            console.log('[Auth PIN] Email utilisé pour auth:', cleanEmail);
-
-            let authUser: any = null;
-            const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-              email: cleanEmail,
-              password,
-            });
-
-            if (signInError) {
-              console.warn('[Auth PIN] Échec signIn initial:', signInError.message);
-              // Si utilisateur non trouvé ou identifiants inexistants, on l'inscrit
-              const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-                email: cleanEmail,
-                password,
-              });
-
-              if (signUpError) {
-                console.warn('[Auth PIN] Échec signUp:', signUpError.message);
-              } else {
-                authUser = signUpData?.user;
-                const { data: retrySignIn } = await supabase.auth.signInWithPassword({
-                  email: cleanEmail,
-                  password,
-                });
-                if (retrySignIn?.user) {
-                  authUser = retrySignIn.user;
-                }
-              }
-            } else {
-              authUser = signInData?.user;
-            }
-
-            if (authUser) {
-              console.log('[Auth PIN] Auth réussie UID:', authUser.id);
-              try {
-                // Dans la table patrons, update aussi l'email avec cleanEmail si l'ancien était @efa.local ou @efa-aconta.com
-                await supabase
-                  .from('patrons')
-                  .update({ auth_id: authUser.id, email: cleanEmail })
-                  .eq('id', patron.id);
-
-                // Mise à jour locale dans Dexie également
-                await db.patrons.update(patron.id, { email: cleanEmail });
-                patron.email = cleanEmail;
-              } catch (updateErr) {
-                console.warn('[Auth PIN] Erreur mise à jour patron auth_id / email:', updateErr);
-              }
-            }
-          } catch (authException: any) {
-            console.warn('[Auth PIN] Exception auth silencieuse:', authException?.message || authException);
+          } catch (deviceUpdateErr) {
+            console.warn('[PinLock] Activité appareil non synchronisée:', deviceUpdateErr);
           }
 
           onUnlock(unlockedUser);

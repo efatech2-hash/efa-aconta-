@@ -24,6 +24,11 @@ import {
   Image as ImageIcon,
   Cloud,
   RefreshCw,
+  Crown,
+  Sparkles,
+  CheckCircle2,
+  Trash2,
+  Laptop,
 } from 'lucide-react';
 import type { Patron, CurrentUser, Employe } from '../lib/types';
 import { verifyPin, hashPin } from '../lib/security';
@@ -34,6 +39,13 @@ import { supabase } from '../lib/supabase';
 import { logAction } from '../lib/historique';
 import { BoutonRetour } from './BoutonRetour';
 import { takePhotoFromCamera, pickPhotoFromGallery } from '../lib/camera';
+import {
+  getBoutiqueDevices,
+  disconnectDevice,
+  getDeviceId,
+  DEVICE_LIMITS,
+  type EfaDeviceRecord,
+} from '../lib/deviceAuth';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -95,6 +107,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [editingEmp, setEditingEmp] = useState<Employe | null>(null);
   const [editEmpNom, setEditEmpNom] = useState('');
 
+  // Appareils connectés (Multi-devices)
+  const [devicesList, setDevicesList] = useState<EfaDeviceRecord[]>([]);
+  const [isLoadingDevices, setIsLoadingDevices] = useState(false);
+  const [currentDeviceId, setCurrentDeviceId] = useState<string>('');
+
+  useEffect(() => {
+    if (isOpen && patron?.id) {
+      setCurrentDeviceId(getDeviceId());
+      setIsLoadingDevices(true);
+      getBoutiqueDevices(patron.id)
+        .then((devs) => setDevicesList(devs))
+        .catch(console.error)
+        .finally(() => setIsLoadingDevices(false));
+    }
+  }, [isOpen, patron?.id]);
+
+  const handleDisconnectDevice = async (deviceIdToDisconnect: string) => {
+    if (!confirm('Voulez-vous vraiment déconnecter cet appareil ?')) return;
+    try {
+      const res = await disconnectDevice(patron.id, deviceIdToDisconnect);
+      if (res.isCurrentDevice) {
+        onClose();
+        onLogout();
+      } else {
+        const updated = await getBoutiqueDevices(patron.id);
+        setDevicesList(updated);
+      }
+    } catch (err) {
+      console.error('Erreur déconnexion appareil:', err);
+    }
+  };
+
   // Zone dangereuse & Suppression compte définitive
   const [isDangerZoneOpen, setIsDangerZoneOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -109,63 +153,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [syncToast, setSyncToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   // Authentification transparente avec PIN en mémoire / storage
-  const handleAuthenticateWithPin = async (pinValue?: string): Promise<any> => {
-    const pinToUse =
-      pinValue ||
-      patron.pin_code ||
-      patron.code_pin ||
-      sessionStorage.getItem('efa_patron_pin') ||
-      localStorage.getItem('efa_patron_pin') ||
-      '1234';
-
-    const idDigits = (patron.id || '').replace(/\D/g, '') || Date.now();
-    let cleanEmail = `patron${idDigits}@gmail.com`;
-
-    if (patron.email && patron.email.includes('@') && !patron.email.includes('@efa-aconta.com') && !patron.email.includes('@efa.local')) {
-      if (patron.email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
-        cleanEmail = patron.email;
-      }
-    }
-
-    const password = pinToUse + 'Efa2024!';
-
-    try {
-      let { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email: cleanEmail,
-        password,
-      });
-
-      if (signInError) {
-        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-          email: cleanEmail,
-          password,
-        });
-
-        if (!signUpError && signUpData?.user) {
-          const retry = await supabase.auth.signInWithPassword({
-            email: cleanEmail,
-            password,
-          });
-          signInData = retry.data;
-        }
-      }
-
-      if (signInData?.user) {
-        try {
-          await supabase
-            .from('patrons')
-            .update({ auth_id: signInData.user.id, email: cleanEmail })
-            .eq('id', patron.id);
-          await db.patrons.update(patron.id, { email: cleanEmail });
-          patron.email = cleanEmail;
-        } catch (e) {
-          // ignore
-        }
-        return signInData.user;
-      }
-    } catch (err) {
-      console.warn('[Auth Cloud] Exception auth:', err);
-    }
+  // Authentification transparente (Zéro Email - accès base direct)
+  const handleAuthenticateWithPin = async (_pinValue?: string): Promise<any> => {
     return null;
   };
 
@@ -502,7 +491,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       sessionStorage.setItem('efa_patron_pin', newPin);
       try {
         await supabase.from('patrons').update({ pin_hash: hashed, pin_code: newPin, code_pin: newPin }).eq('id', patron.id);
-        await supabase.auth.updateUser({ password: newPin + 'Efa2024!' });
+        await supabase.from('efa_boutiques').update({ pin_patron_hash: hashed, pin_code: newPin }).eq('id', patron.id);
       } catch {}
       await queueSyncItem('patrons', 'update', patron.id, updated);
       onPatronUpdated(updated);
@@ -556,7 +545,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       sessionStorage.setItem('efa_patron_pin', otpResetNewPin);
       try {
         await supabase.from('patrons').update({ pin_hash: hashed, pin_code: otpResetNewPin, code_pin: otpResetNewPin }).eq('id', patron.id);
-        await supabase.auth.updateUser({ password: otpResetNewPin + 'Efa2024!' });
+        await supabase.from('efa_boutiques').update({ pin_patron_hash: hashed, pin_code: otpResetNewPin }).eq('id', patron.id);
       } catch {}
       await queueSyncItem('patrons', 'update', patron.id, updated);
       onPatronUpdated(updated);
@@ -1040,50 +1029,316 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           )}
         </div>
 
-        {/* MODIF 2: Gestion Forfait & Essai 21 jours */}
-        <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <span className="text-[11px] font-black uppercase text-blue-600 tracking-wider">
-                Abonnement Caisse
-              </span>
-              <h4 className="text-base font-black text-gray-900">
-                {patron.subscription_status === 'pro'
-                  ? 'Boutique PRO 👑'
-                  : patron.subscription_status === 'populaire'
-                  ? 'Offre Populaire ⭐'
-                  : patron.subscription_status === 'expired'
-                  ? 'Essai Expiré 🔒'
-                  : 'Essai Gratuit 21 Jours 🎁'}
-              </h4>
-              <p className="text-xs font-bold text-gray-500">
-                Statut : <span className="text-blue-700 font-black">{patron.subscription_status || 'trial'}</span>
-              </p>
+        {/* ============================================================== */}
+        {/* NOUVELLE SECTION : ABONNEMENT (3 CARTES 0F, 1500F, 4999F) & MES APPAREILS */}
+        {/* ============================================================== */}
+        <div className="p-5 rounded-3xl bg-white border-2 border-gray-200 shadow-sm space-y-5">
+          <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-black">
+                <Crown className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-base font-black text-gray-900">
+                  Abonnement Caisse & Multi-Appareils
+                </h4>
+                <p className="text-xs text-gray-500 font-semibold">
+                  Forfait actuel : <strong className="text-blue-600 uppercase">{patron.subscription_status || 'essai'}</strong>
+                </p>
+              </div>
             </div>
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-              {onNavigate && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onClose();
-                    onNavigate('mon-abonnement');
-                  }}
-                  className="px-3.5 py-2 rounded-xl bg-white border border-blue-300 text-blue-700 hover:bg-blue-100 font-black text-xs shadow-xs transition cursor-pointer"
-                >
-                  Voir usage & limites 📊
-                </button>
-              )}
+            {onNavigate && (
               <button
                 type="button"
                 onClick={() => {
                   onClose();
-                  onOpenSubscriptionModal?.('populaire', 'Changer ou renouveler mon forfait');
+                  onNavigate('mon-abonnement');
                 }}
-                className="px-3.5 py-2 rounded-xl bg-[#0A3DCE] text-white font-black text-xs shadow hover:bg-blue-800 transition cursor-pointer"
+                className="px-3 py-1.5 rounded-xl bg-blue-50 text-blue-700 font-black text-xs hover:bg-blue-100 transition cursor-pointer"
               >
-                Changer d'offre ✨
+                Détail usage 📊
+              </button>
+            )}
+          </div>
+
+          {/* 1. COMPTEUR JOURS RESTANTS D'ESSAI */}
+          {(() => {
+            const trialEnd = new Date(patron.trial_end_date || patron.abonnement_expire || Date.now());
+            const daysRemaining = Math.max(0, Math.ceil((trialEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+            const isTrial = patron.subscription_status === 'trial' || patron.subscription_status === 'free' || !patron.subscription_status;
+
+            if (isTrial) {
+              const progressPct = Math.min(100, Math.max(5, Math.round((daysRemaining / 21) * 100)));
+              return (
+                <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black text-amber-900 flex items-center gap-1.5">
+                      <Sparkles className="w-4 h-4 text-amber-600" />
+                      <span>🎁 Essai Gratuit en cours</span>
+                    </span>
+                    <span className="px-2.5 py-0.5 rounded-full bg-amber-400 text-amber-950 font-black text-xs">
+                      {daysRemaining} jour{daysRemaining > 1 ? 's' : ''} restant{daysRemaining > 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <div className="w-full bg-amber-200/60 rounded-full h-2.5 overflow-hidden">
+                    <div
+                      className="bg-amber-500 h-full rounded-full transition-all duration-500"
+                      style={{ width: `${progressPct}%` }}
+                    />
+                  </div>
+                  <p className="text-[11px] font-bold text-amber-800">
+                    Profitez de l'application sans interruption. Passez à Populaire ou Pro quand vous le souhaitez.
+                  </p>
+                </div>
+              );
+            }
+            return null;
+          })()}
+
+          {/* 2. LES 3 CARTES D'ABONNEMENT (0F, 1 500F, 4 999F) */}
+          <div className="space-y-2">
+            <h5 className="text-xs font-black uppercase tracking-wider text-gray-500">
+              Nos Forfaits Caisse :
+            </h5>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {/* CARTE 1 : 0 F - ESSAI GRATUIT */}
+              <div
+                className={`p-4 rounded-2xl border-2 flex flex-col justify-between transition ${
+                  patron.subscription_status === 'trial' || patron.subscription_status === 'free' || !patron.subscription_status
+                    ? 'border-emerald-500 bg-emerald-50/40 ring-2 ring-emerald-200'
+                    : 'border-gray-200 bg-gray-50/50'
+                }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-black uppercase text-gray-600">Essai Gratuit</span>
+                    {(patron.subscription_status === 'trial' || patron.subscription_status === 'free' || !patron.subscription_status) && (
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-black uppercase">
+                        ACTIF
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-2xl font-black text-gray-900 mb-1">0 F</div>
+                  <div className="text-[11px] font-bold text-gray-500 mb-3">21 jours complets</div>
+
+                  <ul className="space-y-1.5 text-xs font-bold text-gray-700">
+                    <li className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span><strong>1 appareil</strong> connecté</span>
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span><strong>1 vendeur</strong> avec PIN</span>
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>50 articles en stock</span>
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>Reçus WhatsApp</span>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* CARTE 2 : 1 500 F - POPULAIRE */}
+              <div
+                className={`p-4 rounded-2xl border-2 flex flex-col justify-between transition relative overflow-hidden ${
+                  patron.subscription_status === 'populaire'
+                    ? 'border-[#0A53FF] bg-blue-50/40 ring-2 ring-blue-200'
+                    : 'border-blue-300 bg-gradient-to-b from-blue-50/50 to-white'
+                }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-black uppercase">
+                      ⭐ POPULAIRE
+                    </span>
+                    {patron.subscription_status === 'populaire' && (
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-black uppercase">
+                        ACTIF
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-2xl font-black text-[#0A53FF] mb-1">1 500 F</div>
+                  <div className="text-[11px] font-bold text-gray-500 mb-3">par mois • sans engagement</div>
+
+                  <ul className="space-y-1.5 text-xs font-bold text-gray-700">
+                    <li className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                      <span>📱 <strong>3 appareils</strong> connectés</span>
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                      <span>👥 <strong>3 vendeurs</strong> avec PIN</span>
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                      <span>📦 100 articles en stock</span>
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                      <span>Calcul auto bénéfice</span>
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                      <span>Reçus WhatsApp</span>
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="pt-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenSubscriptionModal?.('populaire', 'Activer le forfait Populaire (3 appareils)');
+                    }}
+                    className="w-full py-2.5 px-3 rounded-xl bg-[#0A53FF] hover:bg-blue-700 active:scale-95 text-white font-black text-xs shadow-md transition cursor-pointer"
+                  >
+                    {patron.subscription_status === 'populaire' ? 'Gérer mon offre' : 'Choisir Populaire'}
+                  </button>
+                </div>
+              </div>
+
+              {/* CARTE 3 : 4 999 F - BOUTIQUE PRO */}
+              <div
+                className={`p-4 rounded-2xl border-2 flex flex-col justify-between transition relative overflow-hidden ${
+                  patron.subscription_status === 'pro'
+                    ? 'border-amber-500 bg-amber-50/40 ring-2 ring-amber-200'
+                    : 'border-amber-300 bg-gradient-to-b from-amber-50/40 to-white'
+                }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500 text-amber-950 text-[10px] font-black uppercase">
+                      👑 ILLIMITÉ
+                    </span>
+                    {patron.subscription_status === 'pro' && (
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-black uppercase">
+                        ACTIF
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-2xl font-black text-amber-900 mb-1">4 999 F</div>
+                  <div className="text-[11px] font-bold text-gray-500 mb-3">par mois • pro tout inclus</div>
+
+                  <ul className="space-y-1.5 text-xs font-bold text-gray-700">
+                    <li className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span>📱 <strong>5 appareils</strong> connectés</span>
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span>👥 <strong>10 vendeurs</strong> avec PIN</span>
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span>📦 300 articles en stock</span>
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span>Facture PDF + Export Excel</span>
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span>Support prioritaire 7j/7</span>
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="pt-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenSubscriptionModal?.('pro', 'Débloquer Boutique Pro (5 appareils)');
+                    }}
+                    className="w-full py-2.5 px-3 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-amber-950 font-black text-xs shadow-md transition cursor-pointer"
+                  >
+                    {patron.subscription_status === 'pro' ? 'Gérer mon offre' : 'Passer à Boutique Pro'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 3. SECTION MES APPAREILS CONNECTÉS */}
+          <div className="pt-3 border-t border-gray-100 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Smartphone className="w-4 h-4 text-gray-600" />
+                <h5 className="text-xs sm:text-sm font-black text-gray-900">
+                  Mes appareils connectés ({devicesList.length} / {DEVICE_LIMITS[patron.subscription_status || 'essai'] || 1})
+                </h5>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  setIsLoadingDevices(true);
+                  const devs = await getBoutiqueDevices(patron.id);
+                  setDevicesList(devs);
+                  setIsLoadingDevices(false);
+                }}
+                className="text-[11px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer"
+              >
+                <RefreshCw className={`w-3 h-3 ${isLoadingDevices ? 'animate-spin' : ''}`} />
+                <span>Actualiser</span>
               </button>
             </div>
+
+            {isLoadingDevices ? (
+              <p className="text-xs text-gray-400 font-semibold py-2">Chargement des appareils...</p>
+            ) : devicesList.length === 0 ? (
+              <div className="p-3 rounded-xl bg-gray-50 border border-gray-200 text-xs text-gray-500 text-center font-bold">
+                1 appareil connecté (cet appareil actuel)
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {devicesList.map((dev) => {
+                  const isCurrent = dev.device_id === currentDeviceId;
+                  return (
+                    <div
+                      key={dev.id || dev.device_id}
+                      className="p-3 rounded-xl border border-gray-200 bg-gray-50 flex items-center justify-between gap-3 text-xs"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-white border border-gray-200 flex items-center justify-center text-gray-700">
+                          {dev.device_name.includes('PC') || dev.device_name.includes('Mac') ? (
+                            <Laptop className="w-4 h-4" />
+                          ) : (
+                            <Smartphone className="w-4 h-4" />
+                          )}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-black text-gray-900">{dev.device_name}</span>
+                            {isCurrent && (
+                              <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black">
+                                Cet appareil
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-gray-400 font-semibold block">
+                            Dernière activité : {new Date(dev.last_seen).toLocaleString('fr-FR')}
+                          </span>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDisconnectDevice(dev.device_id)}
+                        className="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 font-black text-[11px] transition cursor-pointer border border-rose-200 flex items-center gap-1 shrink-0"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>Déconnecter</span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 
@@ -1116,8 +1371,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <button
             type="button"
             onClick={() => {
-              onClose();
-              onLogout();
+              if (confirm('Voulez-vous vous déconnecter de cette boutique ?')) {
+                localStorage.removeItem('currentBoutiqueId');
+                localStorage.removeItem('currentBoutiqueSlug');
+                localStorage.removeItem('currentBoutiqueName');
+                localStorage.removeItem('entreprise_id');
+                localStorage.removeItem('efa_active_user_id');
+                localStorage.removeItem('efa_patron_pin');
+                sessionStorage.removeItem('efa_patron_pin');
+                onClose();
+                onLogout();
+              }
             }}
             className="w-full min-h-[64px] rounded-2xl bg-red-600 hover:bg-red-700 active:scale-95 text-white font-black text-lg flex items-center justify-center gap-3 shadow-lg shadow-red-500/25 transition cursor-pointer"
           >

@@ -228,6 +228,7 @@ export interface ConnectedDevice {
   device_name: string;
   last_active: string;
   created_at: string;
+  is_active?: boolean;
 }
 
 export interface BoutiqueRecord {

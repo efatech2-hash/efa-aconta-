@@ -163,6 +163,41 @@ CREATE TABLE IF NOT EXISTS public.boutiques (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 12. Table efa_boutiques (Zero Email / Zero Gmail)
+CREATE TABLE IF NOT EXISTS public.efa_boutiques (
+    id TEXT PRIMARY KEY,
+    nom_boutique TEXT UNIQUE NOT NULL,
+    nom_affichage TEXT NOT NULL,
+    nom_patron TEXT,
+    pin_patron_hash TEXT NOT NULL,
+    pin_code TEXT,
+    plan TEXT NOT NULL DEFAULT 'essai',
+    date_fin_essai TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '21 days'),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 13. Table efa_vendeurs
+CREATE TABLE IF NOT EXISTS public.efa_vendeurs (
+    id TEXT PRIMARY KEY,
+    boutique_id TEXT REFERENCES public.efa_boutiques(id) ON DELETE CASCADE,
+    nom TEXT NOT NULL,
+    pin_code TEXT NOT NULL,
+    pin_hash TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 14. Table efa_devices (Gestion multi-appareils 1/3/5)
+CREATE TABLE IF NOT EXISTS public.efa_devices (
+    id TEXT PRIMARY KEY,
+    boutique_id TEXT REFERENCES public.efa_boutiques(id) ON DELETE CASCADE,
+    device_id TEXT NOT NULL,
+    device_name TEXT NOT NULL,
+    last_seen TIMESTAMPTZ DEFAULT NOW(),
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- ==============================================================================
 -- ACTIVATION DE ROW LEVEL SECURITY (RLS) SUR CHAQUE TABLE
 -- ==============================================================================
@@ -177,6 +212,9 @@ ALTER TABLE public.parrainage ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.abonnements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.subscriptions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.boutiques ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.efa_boutiques ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.efa_vendeurs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.efa_devices ENABLE ROW LEVEL SECURITY;
 
 -- ==============================================================================
 -- POLITIQUES RLS POUR ACCÈS ANONYME / AUTHENTIFIÉ (APPLICATION EFA ACONTA)
@@ -192,3 +230,6 @@ CREATE POLICY "Allow all on parrainage" ON public.parrainage FOR ALL USING (true
 CREATE POLICY "Allow all on abonnements" ON public.abonnements FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all on subscriptions" ON public.subscriptions FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all on boutiques" ON public.boutiques FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all on efa_boutiques" ON public.efa_boutiques FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all on efa_vendeurs" ON public.efa_vendeurs FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all on efa_devices" ON public.efa_devices FOR ALL USING (true) WITH CHECK (true);

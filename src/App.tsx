@@ -46,156 +46,8 @@ import { getIsPickingPhoto } from './lib/camera';
 import { App as CapacitorApp } from '@capacitor/app';
 import CheckAbonnement from './components/CheckAbonnement';
 import { withTimeout } from './lib/supabaseHelper';
-
-// ===================================================================
-// NOUVEAU COMPOSANT ENTRÉE - CONDITIONS + PIN 4 CHIFFRES - BOSS
-// ===================================================================
-function EfaAcontaOnboarding({ 
-  referralCode,
-  onComplete 
-}: { 
-  referralCode?: string;
-  onComplete: (newPatron: Patron) => void;
-}) {
-  const [step, setStep] = useState<'conditions' | 'nom-boutique' | 'create-pin'>('conditions');
-  const [accepted, setAccepted] = useState(false);
-  const [showConditionsDetail, setShowConditionsDetail] = useState(false);
-  const [nomBoutique, setNomBoutique] = useState('');
-  const [nomPatron, setNomPatron] = useState('');
-  const [pin, setPin] = useState('');
-  const [confirmPin, setConfirmPin] = useState('');
-
-  const handleCreateAccount = async () => {
-    if (pin.length !== 4) { 
-      alert('Ton code secret doit avoir 4 chiffres BOSS, comme Mobile Money'); 
-      return; 
-    }
-    if (pin !== confirmPin) { 
-      alert('Les 2 codes ne sont pas pareils, recommence'); 
-      return; 
-    }
-    if (!nomBoutique.trim()) { 
-      alert('Comment s\'appelle ta boutique ?'); 
-      return; 
-    }
-
-    const now = new Date();
-    const trialEnd = new Date(now.getTime() + 21 * 24 * 60 * 60 * 1000);
-
-    const patronTimestamp = Date.now();
-    const newPatron: Patron = {
-      id: 'patron-' + patronTimestamp,
-      nom: nomPatron || 'Patron',
-      email: `patron${patronTimestamp}@gmail.com`,
-      telephone: '',
-      phone_country: '+228',
-      phone_number: '',
-      phone_full: '',
-      nom_boutique: nomBoutique,
-      pin_code: pin,
-      code_pin: pin,
-      pin_hash: pin,
-      genre: 'femme',
-      role: 'patron',
-      abonnement_expire: trialEnd.toISOString(),
-      subscription_status: 'trial',
-      trial_start_date: now.toISOString(),
-      trial_end_date: trialEnd.toISOString(),
-      subscription_end_date: trialEnd.toISOString(),
-      created_at: now.toISOString(),
-    };
-
-    await db.patrons.put(newPatron);
-    if (referralCode) {
-      localStorage.setItem('efa_invite_code', referralCode);
-    }
-    localStorage.setItem('entreprise_id', newPatron.id);
-    localStorage.setItem('efa_aconta_locked', 'false');
-    localStorage.setItem('efa_active_user_id', newPatron.id);
-    
-    // Sync vers Supabase
-    await queueSyncItem('patrons', 'insert', newPatron.id, newPatron);
-    
-    onComplete(newPatron);
-  };
-
-  if (step === 'conditions') {
-    return (
-      <div className="min-h-screen bg-white flex flex-col p-6 max-w-md mx-auto">
-        <div className="flex-1 flex flex-col justify-center">
-          <div className="w-20 h-20 bg-[#6C5CE7] rounded-[20px] mx-auto mb-6 flex items-center justify-center text-white text-3xl font-black shadow-lg">EFA</div>
-          <h1 className="text-[28px] font-black text-center mb-2 leading-tight">Bienvenue sur<br/>EFA ACONTA</h1>
-          <p className="text-center text-gray-500 mb-8 font-medium">L'app simple pour gérer ta boutique à Lomé</p>
-          
-          {!showConditionsDetail ? (
-            <div className="bg-[#F8F9FA] rounded-2xl p-5 mb-6 border border-gray-100">
-              <p className="text-sm font-bold text-gray-800">Pour utiliser EFA ACONTA, tu dois accepter nos conditions d'utilisation.</p>
-              <button onClick={() => setShowConditionsDetail(true)} className="text-[#6C5CE7] text-sm font-black mt-3 underline">Voir les conditions d'utilisation</button>
-            </div>
-          ) : (
-            <div className="bg-gray-50 rounded-2xl p-4 text-[13px] text-gray-700 h-64 overflow-y-auto mb-6 border leading-relaxed">
-              <h3 className="font-black mb-3 text-base">Conditions d'utilisation EFA ACONTA</h3>
-              <p><b>1. Service:</b> EFA ACONTA t'aide à gérer ton stock, tes ventes et ton argent. Tout marche même sans internet.</p>
-              <p className="mt-2"><b>2. Données:</b> Tes données restent sur ton téléphone. On ne partage rien.</p>
-              <p className="mt-2"><b>3. Code secret:</b> Ton code à 4 chiffres est secret. Ne le donne à personne. Si tu l'oublies, contacte le support.</p>
-              <p className="mt-2"><b>4. Essai gratuit:</b> 21 jours gratuits, après tu choisis un abonnement pour continuer.</p>
-              <p className="mt-2"><b>5. Acceptation:</b> En cochant, tu acceptes d'utiliser EFA ACONTA pour gérer ta boutique honnêtement.</p>
-              <button onClick={() => setShowConditionsDetail(false)} className="text-[#6C5CE7] font-black mt-4">← Retour</button>
-            </div>
-          )}
-
-          <label className="flex items-start gap-3 mb-8 cursor-pointer bg-white border-2 border-gray-100 rounded-2xl p-4">
-            <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} className="w-6 h-6 rounded-lg accent-[#6C5CE7] mt-0.5" />
-            <span className="font-bold text-[14px] leading-tight">J'accepte les <span className="text-[#6C5CE7]">conditions d'utilisation</span> de EFA ACONTA</span>
-          </label>
-
-          <button disabled={!accepted} onClick={() => setStep('nom-boutique')} className={`w-full py-[18px] rounded-2xl font-black text-white text-[17px] shadow-lg transition-all ${accepted ? 'bg-[#6C5CE7] active:scale-[0.98]' : 'bg-gray-300'}`}>Continuer</button>
-          
-          <p className="text-center text-[11px] text-gray-400 mt-4">Sans Gmail • Sans Facebook • Juste 4 chiffres</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (step === 'nom-boutique') {
-    return (
-      <div className="min-h-screen bg-white flex flex-col p-6 max-w-md mx-auto">
-        <div className="flex-1 flex flex-col justify-center">
-          <button onClick={() => setStep('conditions')} className="text-left text-gray-400 font-bold mb-6">← Retour</button>
-          <h1 className="text-[26px] font-black mb-2 leading-tight">Comment s'appelle ta boutique ?</h1>
-          <p className="text-gray-500 mb-8">On va l'afficher sur tes reçus</p>
-          <input value={nomBoutique} onChange={(e) => setNomBoutique(e.target.value)} placeholder="Ex: Boutique de Aicha à Adidogomé" className="w-full p-5 rounded-2xl border-2 border-gray-200 font-bold mb-4 focus:border-[#6C5CE7] outline-none text-[16px]" />
-          <input value={nomPatron} onChange={(e) => setNomPatron(e.target.value)} placeholder="Ton prénom (Ex: Aicha)" className="w-full p-5 rounded-2xl border-2 border-gray-200 font-bold mb-8 focus:border-[#6C5CE7] outline-none text-[16px]" />
-          <button onClick={() => setStep('create-pin')} disabled={!nomBoutique.trim()} className={`w-full py-[18px] rounded-2xl font-black text-white text-[17px] ${nomBoutique.trim() ? 'bg-[#6C5CE7]' : 'bg-gray-300'}`}>Suivant →</button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-white flex flex-col p-6 max-w-md mx-auto">
-      <div className="flex-1 flex flex-col justify-center">
-        <button onClick={() => setStep('nom-boutique')} className="text-left text-gray-400 font-bold mb-6">← Retour</button>
-        <h1 className="text-[26px] font-black mb-2 leading-tight">Crée ton code secret</h1>
-        <p className="text-gray-500 mb-8">4 chiffres comme pour Mobile Money. Tu l'utiliseras pour ouvrir ton app chaque fois.</p>
-        
-        <label className="font-black text-[13px] mb-2 uppercase tracking-wide text-gray-600">Ton code (4 chiffres)</label>
-        <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0,4))} type="tel" inputMode="numeric" placeholder="••••" className="w-full p-5 rounded-2xl border-2 border-gray-200 text-center text-[32px] tracking-[0.6em] font-black mb-5 focus:border-[#6C5CE7] outline-none" />
-        
-        <label className="font-black text-[13px] mb-2 uppercase tracking-wide text-gray-600">Confirme ton code</label>
-        <input value={confirmPin} onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, '').slice(0,4))} type="tel" inputMode="numeric" placeholder="••••" className="w-full p-5 rounded-2xl border-2 border-gray-200 text-center text-[32px] tracking-[0.6em] font-black mb-8 focus:border-[#6C5CE7] outline-none" />
-
-        <button onClick={handleCreateAccount} disabled={pin.length !== 4 || confirmPin.length !== 4} className={`w-full py-[18px] rounded-2xl font-black text-white text-[17px] shadow-lg ${pin.length === 4 && confirmPin.length === 4 ? 'bg-[#6C5CE7]' : 'bg-gray-300'}`}>Valider et entrer dans ma boutique 🔥</button>
-        
-        <p className="text-center text-xs text-gray-400 mt-6">Retiens bien ce code BOSS !</p>
-      </div>
-    </div>
-  );
-}
-
-// ===================================================================
-// FIN NOUVEAU COMPOSANT - TON CODE ORIGINAL COMMENCE ICI BOSS
-// ===================================================================
+import { WelcomeAuthScreen } from './components/WelcomeAuthScreen';
+import { getCurrentBoutiqueId, boutiqueToPatron } from './lib/deviceAuth';
 
 export default function App() {
   const [isInitializing, setIsInitializing] = useState(true);
@@ -300,29 +152,101 @@ export default function App() {
     if (isLoadingDatabaseRef.current) return;
     isLoadingDatabaseRef.current = true;
     try {
-      const patronsList = await db.patrons.toArray();
-      let currentPatron: Patron | null = patronsList.length > 0 ? patronsList[0] : null;
+      // 1. Récupération de l'ID de la boutique courante
+      const currentBoutiqueId = getCurrentBoutiqueId();
+      if (!currentBoutiqueId) {
+        setPatron(null);
+        setCurrentUser(null);
+        setEmployes([]);
+        setProducts([]);
+        setVentes([]);
+        setDepenses([]);
+        setCredits([]);
+        setParrainages([]);
+        return;
+      }
 
+      // 2. Recherche locale dans Dexie pour la boutique courante
+      const patronsList = await db.patrons.toArray();
+      let currentPatron: Patron | null =
+        patronsList.find((p) => p.id === currentBoutiqueId) || null;
+
+      // 3. Synchronisation distante si en ligne
       if (typeof navigator !== 'undefined' && navigator.onLine) {
         try {
-          const query = currentPatron
-            ? supabase.from('patrons').select('*').eq('id', currentPatron.id).limit(1).maybeSingle()
-            : supabase.from('patrons').select('*').order('created_at', { ascending: false }).limit(1).maybeSingle();
-          const { data: remotePatron }: any = await withTimeout(query, 5000);
-          if (remotePatron) {
-            const realPin = remotePatron.pin_code || remotePatron.code_pin || remotePatron.mot_de_passe || remotePatron.password;
+          // Essai dans table efa_boutiques (Zéro Email)
+          const { data: bData } = await withTimeout(
+            supabase.from('efa_boutiques').select('*').eq('id', currentBoutiqueId).limit(1).maybeSingle(),
+            4000
+          );
+          if (bData) {
+            const converted = boutiqueToPatron(bData);
             if (currentPatron) {
-              currentPatron = { ...currentPatron, nom: remotePatron.nom || currentPatron.nom, nom_boutique: remotePatron.nom_boutique || currentPatron.nom_boutique, pin_code: realPin !== undefined ? realPin : currentPatron.pin_code, code_pin: realPin !== undefined ? realPin : currentPatron.code_pin, pin_hash: remotePatron.pin_hash || currentPatron.pin_hash };
+              currentPatron = {
+                ...currentPatron,
+                ...converted,
+                pin_code: currentPatron.pin_code || converted.pin_code,
+                code_pin: currentPatron.code_pin || converted.code_pin,
+              };
             } else {
-              currentPatron = { id: remotePatron.id || 'patron-' + Date.now(), nom: remotePatron.nom || 'Patron', telephone: remotePatron.telephone || '', phone_country: remotePatron.phone_country || '+228', phone_number: remotePatron.phone_number || '', phone_full: remotePatron.phone_full || remotePatron.telephone || '', nom_boutique: remotePatron.nom_boutique || 'Ma Boutique', pin_code: realPin || '', code_pin: realPin || '', pin_hash: remotePatron.pin_hash || '', genre: remotePatron.genre || 'femme', role: 'patron', abonnement_expire: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000).toISOString(), subscription_status: remotePatron.subscription_status || 'trial', created_at: remotePatron.created_at || new Date().toISOString() };
+              currentPatron = converted;
             }
-            if (currentPatron) await db.patrons.put(currentPatron);
+            await db.patrons.put(currentPatron);
+          } else {
+            // Fallback table patrons
+            const query = supabase
+              .from('patrons')
+              .select('*')
+              .eq('id', currentBoutiqueId)
+              .limit(1)
+              .maybeSingle();
+            const { data: remotePatron }: any = await withTimeout(query, 4000);
+            if (remotePatron) {
+              const realPin =
+                remotePatron.pin_code ||
+                remotePatron.code_pin ||
+                remotePatron.mot_de_passe ||
+                remotePatron.password;
+              if (currentPatron) {
+                currentPatron = {
+                  ...currentPatron,
+                  nom: remotePatron.nom || currentPatron.nom,
+                  nom_boutique: remotePatron.nom_boutique || currentPatron.nom_boutique,
+                  pin_code: realPin !== undefined ? realPin : currentPatron.pin_code,
+                  code_pin: realPin !== undefined ? realPin : currentPatron.code_pin,
+                  pin_hash: remotePatron.pin_hash || currentPatron.pin_hash,
+                };
+              } else {
+                currentPatron = {
+                  id: remotePatron.id || currentBoutiqueId,
+                  nom: remotePatron.nom || 'Patron',
+                  telephone: remotePatron.telephone || '',
+                  phone_country: remotePatron.phone_country || '+228',
+                  phone_number: remotePatron.phone_number || '',
+                  phone_full: remotePatron.phone_full || remotePatron.telephone || '',
+                  nom_boutique: remotePatron.nom_boutique || 'Ma Boutique',
+                  pin_code: realPin || '',
+                  code_pin: realPin || '',
+                  pin_hash: remotePatron.pin_hash || '',
+                  genre: remotePatron.genre || 'femme',
+                  role: 'patron',
+                  abonnement_expire: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000).toISOString(),
+                  subscription_status: remotePatron.subscription_status || 'trial',
+                  created_at: remotePatron.created_at || new Date().toISOString(),
+                };
+              }
+              await db.patrons.put(currentPatron);
+            }
           }
-        } catch (syncErr) { console.warn('[Sync] timeout:', syncErr); }
+        } catch (syncErr) {
+          console.warn('[Sync] timeout:', syncErr);
+        }
       }
 
       if (currentPatron) {
-        if (currentPatron.pin_code === '1234' || currentPatron.pin_code === '123') currentPatron.pin_code = currentPatron.code_pin || '';
+        if (currentPatron.pin_code === '1234' || currentPatron.pin_code === '123') {
+          currentPatron.pin_code = currentPatron.code_pin || '';
+        }
         const now = new Date();
         let patronNeedsUpdate = false;
         if (!currentPatron.trial_start_date) {
@@ -334,15 +258,15 @@ export default function App() {
           currentPatron.subscription_end_date = trialEnd.toISOString();
           patronNeedsUpdate = true;
         }
-        if ((currentPatron.subscription_status === 'trial' || !currentPatron.subscription_status) && currentPatron.trial_end_date && now > new Date(currentPatron.trial_end_date)) {
+        if (
+          (currentPatron.subscription_status === 'trial' || !currentPatron.subscription_status) &&
+          currentPatron.trial_end_date &&
+          now > new Date(currentPatron.trial_end_date)
+        ) {
           currentPatron.subscription_status = 'expired';
           patronNeedsUpdate = true;
         }
-        if (!currentPatron.email || currentPatron.email.includes('@efa-aconta.com') || currentPatron.email.includes('@efa.local')) {
-          const idDigits = (currentPatron.id || '').replace(/\D/g, '') || Date.now();
-          currentPatron.email = `patron${idDigits}@gmail.com`;
-          patronNeedsUpdate = true;
-        }
+
         if (patronNeedsUpdate) {
           await db.patrons.put(currentPatron);
           await queueSyncItem('patrons', 'update', currentPatron.id, currentPatron);
@@ -350,6 +274,8 @@ export default function App() {
         setPatron(currentPatron);
         if (typeof window !== 'undefined') localStorage.setItem('entreprise_id', currentPatron.id);
         syncEmployeesSubscription(currentPatron.id, currentPatron.subscription_status || 'trial').catch(() => {});
+
+        // Filtrage strict par currentPatron.id (boutique_id)
         const [empList, prodList, ventList, depList, credList, parrList] = await Promise.all([
           db.employes.where('patron_id').equals(currentPatron.id).toArray(),
           db.produits.where('patron_id').equals(currentPatron.id).toArray(),
@@ -358,25 +284,62 @@ export default function App() {
           db.credits.where('patron_id').equals(currentPatron.id).toArray(),
           db.parrainage.where('parrain_id').equals(currentPatron.id).toArray(),
         ]);
-        setEmployes(empList); setProducts(prodList); setVentes(ventList); setDepenses(depList); setCredits(credList); setParrainages(parrList);
+        setEmployes(empList);
+        setProducts(prodList);
+        setVentes(ventList);
+        setDepenses(depList);
+        setCredits(credList);
+        setParrainages(parrList);
+
         const savedUserId = localStorage.getItem('efa_active_user_id');
         if (!currentUser) {
           if (savedUserId && savedUserId !== currentPatron.id) {
             const foundEmp = empList.find((e) => e.id === savedUserId);
-            const isEmpBlocked = foundEmp && (foundEmp.is_blocked || foundEmp.status === 'blocked' || foundEmp.is_active === false || foundEmp.is_deleted || foundEmp.status === 'deleted');
+            const isEmpBlocked =
+              foundEmp &&
+              (foundEmp.is_blocked ||
+                foundEmp.status === 'blocked' ||
+                foundEmp.is_active === false ||
+                foundEmp.is_deleted ||
+                foundEmp.status === 'deleted');
             if (foundEmp && !isEmpBlocked) {
-              setCurrentUser({ id: foundEmp.id, nom: foundEmp.nom, role: 'vendeuse', genre: foundEmp.genre || 'femme', photo_url: foundEmp.photo_url });
+              setCurrentUser({
+                id: foundEmp.id,
+                nom: foundEmp.nom,
+                role: 'vendeuse',
+                genre: foundEmp.genre || 'femme',
+                photo_url: foundEmp.photo_url,
+              });
             } else {
               localStorage.setItem('efa_active_user_id', currentPatron.id);
-              setCurrentUser({ id: currentPatron.id, nom: currentPatron.nom, role: 'patron', genre: currentPatron.genre || 'femme', photo_url: currentPatron.photo_url });
+              setCurrentUser({
+                id: currentPatron.id,
+                nom: currentPatron.nom,
+                role: 'patron',
+                genre: currentPatron.genre || 'femme',
+                photo_url: currentPatron.photo_url,
+              });
             }
           } else {
-            setCurrentUser({ id: currentPatron.id, nom: currentPatron.nom, role: 'patron', genre: currentPatron.genre || 'femme', photo_url: currentPatron.photo_url });
+            setCurrentUser({
+              id: currentPatron.id,
+              nom: currentPatron.nom,
+              role: 'patron',
+              genre: currentPatron.genre || 'femme',
+              photo_url: currentPatron.photo_url,
+            });
           }
         }
+      } else {
+        setPatron(null);
+        setCurrentUser(null);
       }
-    } catch (err) { console.error('Erreur chargement base locale:', err); } 
-    finally { isLoadingDatabaseRef.current = false; setIsInitializing(false); }
+    } catch (err) {
+      console.error('Erreur chargement base locale:', err);
+    } finally {
+      isLoadingDatabaseRef.current = false;
+      setIsInitializing(false);
+    }
   }, [currentUser]);
 
   const handleFastRefresh = useCallback(async () => {
@@ -449,7 +412,16 @@ export default function App() {
     setActiveTab('home');
   };
 
-  const handleLogout = useCallback(() => { setIsAutoLogoutPromptOpen(false); lockApp(); }, [lockApp]);
+  const handleLogout = useCallback(() => {
+    setIsAutoLogoutPromptOpen(false);
+    if (!localStorage.getItem('currentBoutiqueId')) {
+      setPatron(null);
+      setCurrentUser(null);
+      setIsPinLocked(false);
+      return;
+    }
+    lockApp();
+  }, [lockApp]);
 
   const handleNavigate = useCallback((tab: 'home' | 'vendre' | 'mon-argent' | 'stock' | 'ajouter' | 'employes' | 'ambassadrice' | 'mes-ventes' | 'historique' | 'mon-abonnement') => {
     setActiveTab(tab);
@@ -516,20 +488,27 @@ export default function App() {
     return <InviteLandingScreen patron={patron} slug={previewInviteSlug} onAcceptInvite={(slug) => { localStorage.setItem('efa_invite_code', slug); setPreviewInviteSlug(null); speakFrench(`Code d'invitation ${slug} activé !`); }} onBack={() => setPreviewInviteSlug(null)} />;
   }
 
-  // ICI BOSS - C'EST LA SEULE LIGNE QUI CHANGE - ON UTILISE NOTRE NOUVELLE ENTRÉE CONDITIONS + PIN
+  // Objectif ZÉRO EMAIL : Écran d'accueil [CRÉER MA BOUTIQUE] et [J'AI DÉJÀ UN COMPTE]
   if (!patron) {
     return (
       <div className="relative min-h-screen">
-        <EfaAcontaOnboarding
-          referralCode={previewInviteSlug || undefined}
-          onComplete={(newPatron) => {
+        <WelcomeAuthScreen
+          onSuccess={(newPatron) => {
             setPatron(newPatron);
-            const user: CurrentUser = { id: newPatron.id, nom: newPatron.nom, role: 'patron', genre: newPatron.genre || 'femme', photo_url: newPatron.photo_url };
+            const user: CurrentUser = {
+              id: newPatron.id,
+              nom: newPatron.nom,
+              role: 'patron',
+              genre: newPatron.genre || 'femme',
+              photo_url: newPatron.photo_url,
+            };
             setCurrentUser(user);
             localStorage.setItem('efa_active_user_id', user.id);
             localStorage.setItem('entreprise_id', newPatron.id);
+            localStorage.setItem('currentBoutiqueId', newPatron.id);
             loadDatabase();
           }}
+          onOpenSubscriptionModal={handleOpenSubscriptionModal}
         />
         <EFAVoiceAssistant isOnline={isOnline} products={products} onCommandParsed={(cmd) => setPendingVoiceAction(cmd)} />
         <ConfirmationModal isOpen={!!pendingVoiceAction} summary={pendingVoiceAction?.summary || ''} transcript={pendingVoiceAction?.raw_transcript || ''} onConfirm={handleConfirmVoiceAction} onCancel={handleCancelVoiceAction} />
