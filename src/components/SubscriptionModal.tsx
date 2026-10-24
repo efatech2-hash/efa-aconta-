@@ -28,11 +28,12 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   const currentStatus = patron?.subscription_status || 'trial';
   const patronIdentifier = patron?.telephone || patron?.nom || 'mon compte';
 
-  const handleOpenWhatsApp = (planName: string) => {
-    const periodText = selectedBilling === 'annuel' ? 'annuel (11 mois payés + 1 mois offert)' : 'mensuel';
-    const message = `Bonjour EFA ACONTA, je veux m'abonner à l'offre ${planName} (${periodText}) pour mon compte ${patronIdentifier}. Merci de m'indiquer la procédure de paiement.`;
-    const encoded = encodeURIComponent(message);
-    const url = `https://wa.me/22893289162?text=${encoded}`;
+  const handleOpenWhatsApp = () => {
+    const nomClient = patron?.nom || 'Client';
+    const nomBoutique = patron?.nom_boutique || 'Ma Boutique';
+    const text = `Bonjour EFA TECH Aconta, je suis ${nomClient} boutique ${nomBoutique}, je veux payer mon abonnement`;
+    const whatsappNum = (typeof process !== 'undefined' && process.env?.WHATSAPP_NUMBER) || '22896100972';
+    const url = `https://wa.me/${whatsappNum}?text=${encodeURIComponent(text)}`;
     window.open(url, '_blank');
   };
 
@@ -231,11 +232,11 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
             <div className="pt-6">
               <button
                 type="button"
-                onClick={() => handleOpenWhatsApp('POPULAIRE (1 500 F/mois)')}
-                className="w-full min-h-[50px] rounded-2xl bg-[#0A3DCE] hover:bg-[#0834b2] active:scale-95 text-white font-black text-base flex items-center justify-center gap-2 shadow-lg shadow-blue-600/30 transition cursor-pointer"
+                onClick={handleOpenWhatsApp}
+                className="w-full min-h-[50px] rounded-2xl bg-[#25D366] hover:bg-[#20ba59] active:scale-95 text-white font-black text-base flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/30 transition cursor-pointer"
               >
-                <span>Choisir Populaire</span>
-                <span>➔</span>
+                <MessageCircle className="w-5 h-5 flex-shrink-0" />
+                <span>Payer via WhatsApp</span>
               </button>
             </div>
           </div>
@@ -260,22 +261,22 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
               <div className="my-4">
                 {selectedBilling === 'annuel' ? (
                   <div>
-                    <span className="text-3xl sm:text-4xl font-black text-gray-900">54 900 F</span>
-                    <span className="text-sm font-bold text-gray-500 ml-1">/ an</span>
-                    <p className="text-xs font-bold text-gray-400 mt-0.5">Soit ~4 575 F / mois</p>
+                    <span className="text-3xl sm:text-4xl font-black text-gray-900">90 000 F</span>
+                    <span className="text-sm font-bold text-gray-500 ml-1">/ 1 an</span>
+                    <p className="text-xs font-bold text-gray-400 mt-0.5">Offre annuelle complète 90.000 F</p>
                   </div>
                 ) : (
                   <div>
-                    <span className="text-3xl sm:text-4xl font-black text-gray-900">4 999 F</span>
-                    <span className="text-sm font-bold text-gray-500 ml-1">/ mois</span>
-                    <p className="text-xs font-bold text-gray-400 mt-0.5">Tout inclus sans limite</p>
+                    <span className="text-3xl sm:text-4xl font-black text-gray-900">50 000 F</span>
+                    <span className="text-sm font-bold text-gray-500 ml-1">/ 6 mois</span>
+                    <p className="text-xs font-bold text-gray-400 mt-0.5">Ou 25.000 F (3 mois)</p>
                   </div>
                 )}
               </div>
 
               {/* Phrase verte Promo 11 mois */}
               <div className="mb-4 bg-[#DCFCE7] text-[#166534] px-3 py-1.5 rounded-full text-xs font-black text-center flex items-center justify-center gap-1 shadow-sm">
-                <span>✅ Payez 11 mois, 12ème OFFERT</span>
+                <span>✅ Activation instantanée par la Direction EFA</span>
               </div>
 
               {/* Avantages */}
@@ -326,11 +327,11 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
             <div className="pt-6">
               <button
                 type="button"
-                onClick={() => handleOpenWhatsApp('BOUTIQUE PRO (4 999 F/mois)')}
-                className="w-full min-h-[50px] rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 active:scale-95 text-white font-black text-base flex items-center justify-center gap-2 shadow-lg shadow-amber-500/30 transition cursor-pointer"
+                onClick={handleOpenWhatsApp}
+                className="w-full min-h-[50px] rounded-2xl bg-[#25D366] hover:bg-[#20ba59] active:scale-95 text-white font-black text-base flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/30 transition cursor-pointer"
               >
-                <span>Choisir Pro</span>
-                <span>➔</span>
+                <MessageCircle className="w-5 h-5 flex-shrink-0" />
+                <span>Payer via WhatsApp</span>
               </button>
             </div>
           </div>
@@ -340,14 +341,14 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
         <div className="pt-2 pb-2 text-center">
           <button
             type="button"
-            onClick={() => handleOpenWhatsApp('Forfait EFA ACONTA')}
+            onClick={handleOpenWhatsApp}
             className="w-full max-w-xl mx-auto min-h-[56px] px-6 py-4 rounded-2xl bg-[#25D366] hover:bg-[#20ba59] active:scale-95 text-white font-black text-base sm:text-lg flex items-center justify-center gap-3 shadow-xl shadow-emerald-900/40 transition cursor-pointer"
           >
             <MessageCircle className="w-6 h-6 flex-shrink-0 stroke-[2.5]" />
-            <span>📱 Contactez-nous pour payer : +228 93 28 91 62</span>
+            <span>Payer via WhatsApp (+228 96 10 09 72)</span>
           </button>
           <p className="text-blue-200 text-xs font-bold mt-2">
-            Paiement accepté : T-Money, Flooz, Wave, Carte bancaire • Activation instantanée
+            Paiement accepté : T-Money, Flooz, Wave, Carte bancaire • Activation manuelle par la Direction
           </p>
         </div>
       </div>

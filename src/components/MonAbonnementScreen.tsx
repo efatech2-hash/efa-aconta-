@@ -14,11 +14,11 @@ import {
   RefreshCw,
   ExternalLink,
   Zap,
+  MessageCircle,
 } from 'lucide-react';
 import type { Patron, SubscriptionStatus } from '../lib/types';
 import { BoutonRetour } from './BoutonRetour';
-import { getSubscriptionUsage, PLAN_CONFIGS, activateSubscription } from '../lib/checkLimits';
-import { speakFrench } from '../lib/speech';
+import { getSubscriptionUsage, PLAN_CONFIGS } from '../lib/checkLimits';
 
 interface MonAbonnementScreenProps {
   patron: Patron;
@@ -35,7 +35,6 @@ export const MonAbonnementScreen: React.FC<MonAbonnementScreenProps> = ({
 }) => {
   const [usage, setUsage] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [simulatingWebhook, setSimulatingWebhook] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const loadUsageData = async () => {
@@ -60,21 +59,13 @@ export const MonAbonnementScreen: React.FC<MonAbonnementScreenProps> = ({
   const isPopulaire = currentPlan === 'populaire';
   const isTrial = currentPlan === 'trial';
 
-  // Simuler réception Webhook paiement externe pour déblocage instantané
-  const handleSimulateWebhook = async (targetPlan: 'populaire' | 'pro') => {
-    setSimulatingWebhook(true);
-    try {
-      const result = await activateSubscription(patron, targetPlan, 'mensuel');
-      speakFrench(`Paiement reçu. Forfait ${targetPlan === 'pro' ? 'Boutique Pro' : 'Populaire'} activé !`);
-      setToastMessage(result.message);
-      if (onRefreshPatron) onRefreshPatron();
-      await loadUsageData();
-      setTimeout(() => setToastMessage(null), 4000);
-    } catch (err) {
-      console.error('Erreur simulation webhook:', err);
-    } finally {
-      setSimulatingWebhook(false);
-    }
+  const handleOpenWhatsAppPayment = () => {
+    const nomClient = patron?.nom || 'Client';
+    const nomBoutique = patron?.nom_boutique || 'Ma Boutique';
+    const text = `Bonjour EFA TECH Aconta, je suis ${nomClient} boutique ${nomBoutique}, je veux payer mon abonnement`;
+    const whatsappNum = (typeof process !== 'undefined' && process.env?.WHATSAPP_NUMBER) || '22896100972';
+    const url = `https://wa.me/${whatsappNum}?text=${encodeURIComponent(text)}`;
+    window.open(url, '_blank');
   };
 
   return (
@@ -404,35 +395,34 @@ export const MonAbonnementScreen: React.FC<MonAbonnementScreenProps> = ({
         </div>
       </div>
 
-      {/* SIMULATEUR DE WEBHOOK PAIEMENT AUTO (DÉBLOCAGE INSTANTANÉ) */}
-      <div className="p-5 rounded-3xl bg-blue-50/70 border-2 border-blue-200 shadow-xs space-y-3">
-        <div className="flex items-center gap-2 text-blue-900">
-          <Zap className="w-5 h-5 text-blue-600" />
-          <h4 className="font-black text-sm sm:text-base">
-            Synchronisation Automatique & Webhook Paiement
-          </h4>
+      {/* PAIEMENT MANUEL VIA WHATSAPP */}
+      <div className="p-5 sm:p-6 rounded-3xl bg-emerald-50 border-2 border-emerald-300 shadow-sm space-y-3">
+        <div className="flex items-center gap-2.5 text-emerald-950">
+          <div className="w-9 h-9 rounded-xl bg-[#25D366] text-white flex items-center justify-center shadow-xs">
+            <MessageCircle className="w-5 h-5 fill-white stroke-none" />
+          </div>
+          <div>
+            <h4 className="font-black text-sm sm:text-base text-emerald-950">
+              Paiement Sécurisé & Activation Rapide
+            </h4>
+            <p className="text-[11px] font-bold text-emerald-700">
+              Assistance EFA TECH & validation Mobile Money (T-Money, Flooz)
+            </p>
+          </div>
         </div>
-        <p className="text-xs font-semibold text-blue-800 leading-relaxed">
-          Lorsqu'un paiement Mobile Money ou carte bancaire est validé, le webhook met à jour
-          immédiatement le forfait du patron et de ses vendeurs en base de données.
+        <p className="text-xs sm:text-sm font-semibold text-emerald-900 leading-relaxed">
+          Pour renouveler ou débloquer votre abonnement (6 mois à 50 000 F CFA ou 1 an à 90 000 F CFA),
+          contactez directement notre service commercial par WhatsApp pour activer votre compte.
         </p>
 
-        <div className="flex flex-wrap items-center gap-2 pt-1">
+        <div className="pt-2">
           <button
             type="button"
-            disabled={simulatingWebhook}
-            onClick={() => handleSimulateWebhook('populaire')}
-            className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-black text-xs transition cursor-pointer shadow-xs disabled:opacity-50"
+            onClick={handleOpenWhatsAppPayment}
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-2xl bg-[#25D366] hover:bg-[#20ba5a] active:scale-95 text-white font-black text-sm sm:text-base transition cursor-pointer shadow-md"
           >
-            {simulatingWebhook ? 'Validation...' : 'Tester Webhook : Activer Populaire'}
-          </button>
-          <button
-            type="button"
-            disabled={simulatingWebhook}
-            onClick={() => handleSimulateWebhook('pro')}
-            className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-amber-950 font-black text-xs transition cursor-pointer shadow-xs disabled:opacity-50"
-          >
-            {simulatingWebhook ? 'Validation...' : 'Tester Webhook : Activer Pro'}
+            <MessageCircle className="w-5 h-5 fill-white stroke-none" />
+            <span>Payer via WhatsApp</span>
           </button>
         </div>
       </div>

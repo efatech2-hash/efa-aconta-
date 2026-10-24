@@ -26,7 +26,7 @@ export const DeviceLimitModal: React.FC<DeviceLimitModalProps> = ({
   if (!isOpen) return null;
 
   const planLabel = plan === 'pro' ? 'Boutique Pro' : plan === 'populaire' ? 'Populaire' : 'Essai';
-  const whatsappUrl = `https://wa.me/22890000000?text=${encodeURIComponent(
+  const whatsappUrl = `https://wa.me/22896100972?text=${encodeURIComponent(
     `Bonjour EFA, j'ai atteint la limite d'appareils (${maxAllowed} max) pour ma boutique et je souhaite passer à un forfait supérieur.`
   )}`;
 

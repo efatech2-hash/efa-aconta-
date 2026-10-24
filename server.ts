@@ -3,6 +3,10 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { createClient } from '@supabase/supabase-js';
+import dotenv from 'dotenv';
+
+dotenv.config({ path: '.env.local' });
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -535,6 +539,241 @@ app.post('/api/webhooks/paiement', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('[WEBHOOK PAIEMENT] ❌ Erreur:', err);
     return res.status(500).json({ error: 'DATABASE_ERROR', message: err.message });
+  }
+});
+
+// ==============================================================================
+// 4.5. ENDPOINTS MODE SUPER ADMIN SÉPARÉ ET SÉCURISÉ
+// ==============================================================================
+const adminSessions = new Set<string>();
+
+app.post('/api/admin/login', (req: Request, res: Response) => {
+  const { email, password } = req.body || {};
+  const expectedEmail = process.env.SUPER_ADMIN_EMAIL || '';
+  const expectedPassword = process.env.SUPER_ADMIN_PASSWORD || '';
+
+  if (!email || !password) {
+    return res.status(400).json({ success: false, error: 'Email et mot de passe requis' });
+  }
+
+  const isMatch =
+    email.trim().toLowerCase() === expectedEmail.trim().toLowerCase() &&
+    password === expectedPassword;
+
+  if (isMatch) {
+    const token = 'admin_sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
+    adminSessions.add(token);
+    return res.json({
+      success: true,
+      token,
+      email: expectedEmail,
+      whatsappNumber: process.env.WHATSAPP_NUMBER || '22896100972',
+    });
+  }
+
+  return res.status(401).json({ success: false, error: 'Email ou mot de passe incorrect' });
+});
+
+app.post('/api/admin/verify', (req: Request, res: Response) => {
+  const { token } = req.body || {};
+  if (token && adminSessions.has(token)) {
+    return res.json({ success: true, email: process.env.SUPER_ADMIN_EMAIL });
+  }
+  return res.status(401).json({ success: false, error: 'Session invalide ou expirée' });
+});
+
+app.post('/api/admin/logout', (req: Request, res: Response) => {
+  const { token } = req.body || {};
+  if (token) adminSessions.delete(token);
+  return res.json({ success: true });
+});
+
+app.get('/api/admin/boutiques', async (_req: Request, res: Response) => {
+  try {
+    // 1. Lire efa_boutiques
+    const { data: efaBoutiques } = await supabase
+      .from('efa_boutiques')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    // 2. Lire patrons
+    const { data: patronsData } = await supabase
+      .from('patrons')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    const combinedMap = new Map<string, any>();
+
+    if (patronsData) {
+      for (const p of patronsData) {
+        const subEnd = p.subscription_end_date || p.abonnement_expire || p.trial_end_date;
+        const now = new Date();
+        const isExp = subEnd ? new Date(subEnd) < now : false;
+        const status = p.is_active === false ? 'bloque' : isExp ? 'expire' : (p.subscription_status || 'actif');
+
+        combinedMap.set(p.id, {
+          id: p.id,
+          nom_personne: p.nom || 'Patron',
+          nom_boutique: p.nom_boutique || 'Ma Boutique',
+          pin_code: p.pin_code || p.code_pin || '----',
+          quartier: p.quartier || '',
+          telephone: p.telephone || p.phone_full || '',
+          status,
+          is_active: p.is_active !== false,
+          subscription_end: subEnd || null,
+          plan: p.subscription_status || 'essai',
+          last_payment_amount: p.last_payment_amount || 0,
+          created_at: p.created_at || new Date().toISOString(),
+          source: 'patrons',
+        });
+      }
+    }
+
+    if (efaBoutiques) {
+      for (const b of efaBoutiques) {
+        const existing = combinedMap.get(b.id);
+        const subEnd = b.date_fin_essai;
+        const now = new Date();
+        const isExp = subEnd ? new Date(subEnd) < now : false;
+        const status = b.is_active === false ? 'bloque' : isExp ? 'expire' : (b.plan || 'actif');
+
+        combinedMap.set(b.id, {
+          id: b.id,
+          nom_personne: b.nom_patron || existing?.nom_personne || b.nom_affichage,
+          nom_boutique: b.nom_affichage || b.nom_boutique,
+          pin_code: b.pin_code || existing?.pin_code || '----',
+          quartier: b.quartier || existing?.quartier || '',
+          telephone: existing?.telephone || '',
+          status,
+          is_active: b.is_active !== false,
+          subscription_end: subEnd || existing?.subscription_end || null,
+          plan: b.plan || 'essai',
+          last_payment_amount: b.last_payment_amount || existing?.last_payment_amount || 0,
+          created_at: b.created_at || new Date().toISOString(),
+          source: 'efa_boutiques',
+        });
+      }
+    }
+
+    const boutiques = Array.from(combinedMap.values());
+
+    const total_boutiques = boutiques.length;
+    const actives = boutiques.filter((b) => b.is_active && b.status !== 'expire' && b.status !== 'bloque').length;
+    const expirees = boutiques.filter((b) => b.status === 'expire').length;
+    const revenu_total = boutiques.reduce((sum, b) => sum + (Number(b.last_payment_amount) || 0), 0);
+
+    return res.json({
+      success: true,
+      stats: {
+        total_boutiques,
+        actives,
+        expirees,
+        revenu_total,
+      },
+      boutiques,
+    });
+  } catch (err: any) {
+    console.error('[SUPER ADMIN] Erreur list boutiques:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/admin/boutiques/activate', async (req: Request, res: Response) => {
+  try {
+    const { boutique_id, duration_days, plan, amount } = req.body || {};
+    if (!boutique_id) return res.status(400).json({ error: 'boutique_id requis' });
+
+    const days = parseInt(duration_days, 10) || 365;
+    const expiryDate = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+    const payAmount = Number(amount) || (days >= 365 ? 90000 : 50000);
+    const chosenPlan = plan || (days >= 365 ? 'pro' : 'populaire');
+
+    try {
+      await supabase
+        .from('efa_boutiques')
+        .update({
+          plan: chosenPlan,
+          date_fin_essai: expiryDate,
+          is_active: true,
+          last_payment_amount: payAmount,
+        })
+        .eq('id', boutique_id);
+    } catch (e) {}
+
+    try {
+      await supabase
+        .from('patrons')
+        .update({
+          subscription_status: chosenPlan,
+          subscription_end_date: expiryDate,
+          abonnement_expire: expiryDate,
+          is_active: true,
+          last_payment_amount: payAmount,
+        })
+        .eq('id', boutique_id);
+    } catch (e) {}
+
+    try {
+      await supabase.from('historique_actions').insert({
+        id: `admin_act_${Date.now()}`,
+        patron_id: boutique_id,
+        action_type: 'super_admin_activation',
+        description: `Activation Super Admin : ${chosenPlan.toUpperCase()} (${days} jours, ${payAmount.toLocaleString('fr-FR')} F)`,
+        montant: payAmount,
+        created_at: new Date().toISOString(),
+      });
+    } catch (e) {}
+
+    return res.json({
+      success: true,
+      message: `Boutique activée pour ${days} jours avec succès`,
+      subscription_end: expiryDate,
+      amount: payAmount,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/admin/boutiques/toggle-status', async (req: Request, res: Response) => {
+  try {
+    const { boutique_id, is_active } = req.body || {};
+    if (!boutique_id) return res.status(400).json({ error: 'boutique_id requis' });
+
+    await supabase.from('efa_boutiques').update({ is_active }).eq('id', boutique_id);
+    await supabase.from('patrons').update({ is_active }).eq('id', boutique_id);
+
+    return res.json({ success: true, is_active });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/admin/boutiques/prolong', async (req: Request, res: Response) => {
+  try {
+    const { boutique_id, add_days } = req.body || {};
+    if (!boutique_id) return res.status(400).json({ error: 'boutique_id requis' });
+
+    const daysToAdd = parseInt(add_days, 10) || 30;
+    const newEnd = new Date(Date.now() + daysToAdd * 86400000).toISOString();
+
+    await supabase.from('efa_boutiques').update({ date_fin_essai: newEnd, is_active: true }).eq('id', boutique_id);
+    await supabase.from('patrons').update({ subscription_end_date: newEnd, abonnement_expire: newEnd, is_active: true }).eq('id', boutique_id);
+
+    return res.json({ success: true, subscription_end: newEnd });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/admin/boutiques/:id', async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id;
+    await supabase.from('efa_boutiques').delete().eq('id', id);
+    await supabase.from('patrons').delete().eq('id', id);
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 

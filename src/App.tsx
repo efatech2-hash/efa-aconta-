@@ -44,10 +44,11 @@ import { speakFrench } from './lib/speech';
 import { supabase } from './lib/supabase';
 import { getIsPickingPhoto } from './lib/camera';
 import { App as CapacitorApp } from '@capacitor/app';
-import CheckAbonnement from './components/CheckAbonnement';
 import { withTimeout } from './lib/supabaseHelper';
+import CheckAbonnement from './components/CheckAbonnement';
 import { WelcomeAuthScreen } from './components/WelcomeAuthScreen';
 import { getCurrentBoutiqueId, boutiqueToPatron } from './lib/deviceAuth';
+import { SuperAdminScreen } from './components/SuperAdminScreen';
 
 export default function App() {
   const [isInitializing, setIsInitializing] = useState(true);
@@ -113,6 +114,21 @@ export default function App() {
     };
   }, []);
 
+  const [isAdminRoute, setIsAdminRoute] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const p = window.location.pathname;
+      return (
+        p === '/efa-admin' ||
+        p === '/efa-admin/' ||
+        p === '/admin-efa' ||
+        p === '/admin-efa/' ||
+        p === '/login' ||
+        p === '/login/'
+      );
+    }
+    return false;
+  });
+
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const pathname = window.location.pathname;
@@ -123,6 +139,15 @@ export default function App() {
         if (slug) setPreviewInviteSlug(slug);
       } else if (urlInvite) {
         setPreviewInviteSlug(urlInvite);
+      } else if (
+        pathname === '/efa-admin' ||
+        pathname === '/efa-admin/' ||
+        pathname === '/admin-efa' ||
+        pathname === '/admin-efa/' ||
+        pathname === '/login' ||
+        pathname === '/login/'
+      ) {
+        setIsAdminRoute(true);
       } else if (pathname === '/ambassadrice' || pathname === '/ambassadrice/') {
         setActiveTab('ambassadrice');
       } else if (pathname === '/mon-abonnement' || pathname === '/mon-abonnement/') {
@@ -130,9 +155,21 @@ export default function App() {
       }
       const handlePopState = () => {
         const path = window.location.pathname;
-        if (path === '/ambassadrice' || path === '/ambassadrice/') setActiveTab('ambassadrice');
-        else if (path === '/mon-abonnement' || path === '/mon-abonnement/') setActiveTab('mon-abonnement');
-        else if (path === '/' || path === '') setActiveTab('home');
+        if (
+          path === '/efa-admin' ||
+          path === '/efa-admin/' ||
+          path === '/admin-efa' ||
+          path === '/admin-efa/' ||
+          path === '/login' ||
+          path === '/login/'
+        ) {
+          setIsAdminRoute(true);
+        } else {
+          setIsAdminRoute(false);
+          if (path === '/ambassadrice' || path === '/ambassadrice/') setActiveTab('ambassadrice');
+          else if (path === '/mon-abonnement' || path === '/mon-abonnement/') setActiveTab('mon-abonnement');
+          else if (path === '/' || path === '') setActiveTab('home');
+        }
       };
       window.addEventListener('popstate', handlePopState);
       return () => window.removeEventListener('popstate', handlePopState);
@@ -479,6 +516,18 @@ export default function App() {
   };
 
   const handleCancelVoiceAction = () => setPendingVoiceAction(null);
+
+  // ROUTE CACHÉE SUPER ADMIN : /efa-admin ou /admin-efa ou /login
+  if (isAdminRoute) {
+    return (
+      <SuperAdminScreen
+        onNavigateToClient={() => {
+          window.history.pushState({}, '', '/');
+          setIsAdminRoute(false);
+        }}
+      />
+    );
+  }
 
   if (isInitializing) {
     return <div className="min-h-screen bg-[#F8F9FA] flex flex-col items-center justify-center p-4"><div className="w-16 h-16 rounded-full border-4 border-[#6C5CE7] border-t-transparent animate-spin mb-4" /><p className="text-xl font-black text-gray-800">Chargement de la caisse EFA ACONTA...</p></div>;
