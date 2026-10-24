@@ -204,9 +204,10 @@ export const SuperAdminScreen: React.FC<SuperAdminScreenProps> = ({ onNavigateTo
         // Intégrer Dexie local
         if (Array.isArray(localPatrons)) {
           for (const lp of localPatrons) {
-            const subEnd = lp.subscription_end_date || lp.abonnement_expire || lp.trial_end_date;
+            const subEnd = (lp as any).fin_abonnement || lp.subscription_end_date || lp.abonnement_expire || lp.trial_end_date;
             const now = new Date();
             const isExp = subEnd ? new Date(subEnd) < now : false;
+            const plan = (lp as any).forfait || lp.subscription_status || 'essai';
             combined.set(lp.id, {
               id: lp.id,
               nom_personne: lp.nom || 'Patron',
@@ -217,7 +218,7 @@ export const SuperAdminScreen: React.FC<SuperAdminScreenProps> = ({ onNavigateTo
               status: isExp ? 'expire' : (lp.subscription_status || 'actif'),
               is_active: true,
               subscription_end: subEnd || null,
-              plan: lp.subscription_status || 'essai',
+              plan,
               last_payment_amount: 0,
               created_at: lp.created_at,
               source: 'local',
@@ -228,15 +229,16 @@ export const SuperAdminScreen: React.FC<SuperAdminScreenProps> = ({ onNavigateTo
         // Intégrer table patrons Supabase
         if (patronsRes.data) {
           for (const p of patronsRes.data) {
-            const subEnd = p.subscription_end_date || p.abonnement_expire || p.trial_end_date;
+            const subEnd = p.fin_abonnement || p.subscription_end_date || p.abonnement_expire || p.trial_end_date;
             const now = new Date();
             const isExp = subEnd ? new Date(subEnd) < now : false;
+            const plan = p.forfait || p.subscription_status || 'essai';
             const status =
               p.is_active === false
                 ? 'bloque'
                 : isExp
                 ? 'expire'
-                : (p.subscription_status || 'actif');
+                : (p.statut === 'ACTIF' ? 'actif' : (p.subscription_status || 'actif'));
 
             combined.set(p.id, {
               id: p.id,
@@ -248,7 +250,7 @@ export const SuperAdminScreen: React.FC<SuperAdminScreenProps> = ({ onNavigateTo
               status,
               is_active: p.is_active !== false,
               subscription_end: subEnd || null,
-              plan: p.subscription_status || 'essai',
+              plan,
               last_payment_amount: p.last_payment_amount || 0,
               created_at: p.created_at,
               source: 'patrons',
@@ -260,11 +262,12 @@ export const SuperAdminScreen: React.FC<SuperAdminScreenProps> = ({ onNavigateTo
         if (efaRes.data) {
           for (const b of efaRes.data) {
             const existing = combined.get(b.id);
-            const subEnd = b.date_fin_essai;
+            const subEnd = b.date_fin_essai || (b as any).fin_abonnement || existing?.subscription_end;
             const now = new Date();
             const isExp = subEnd ? new Date(subEnd) < now : false;
+            const plan = (b as any).forfait || b.plan || existing?.plan || 'essai';
             const status =
-              b.is_active === false ? 'bloque' : isExp ? 'expire' : (b.plan || 'actif');
+              b.is_active === false ? 'bloque' : isExp ? 'expire' : ((b as any).statut === 'ACTIF' ? 'actif' : (b.plan || 'actif'));
 
             combined.set(b.id, {
               id: b.id,
@@ -275,8 +278,8 @@ export const SuperAdminScreen: React.FC<SuperAdminScreenProps> = ({ onNavigateTo
               telephone: existing?.telephone || '',
               status,
               is_active: b.is_active !== false,
-              subscription_end: subEnd || existing?.subscription_end || null,
-              plan: b.plan || 'essai',
+              subscription_end: subEnd || null,
+              plan,
               last_payment_amount: b.last_payment_amount || existing?.last_payment_amount || 0,
               created_at: b.created_at,
               source: 'efa_boutiques',
@@ -401,38 +404,121 @@ export const SuperAdminScreen: React.FC<SuperAdminScreenProps> = ({ onNavigateTo
     }
   };
 
-  // Action : Prolonger (X jours)
-  const handleProlongBoutique = async (boutique: AdminBoutique, daysToAdd: number) => {
+  // Action : Prolonger (+30 jours par défaut)
+  const handleProlonger = async (boutique: AdminBoutique, daysToAdd: number = 30) => {
     try {
-      const currentEnd = boutique.subscription_end ? new Date(boutique.subscription_end) : new Date();
-      const baseDate = currentEnd > new Date() ? currentEnd : new Date();
-      const newExpiry = new Date(baseDate.getTime() + daysToAdd * 24 * 60 * 60 * 1000).toISOString();
+      const now = new Date();
+      let ancienneDateFin: Date;
+      if (boutique.subscription_end) {
+        ancienneDateFin = new Date(boutique.subscription_end);
+        if (isNaN(ancienneDateFin.getTime())) ancienneDateFin = now;
+      } else {
+        ancienneDateFin = now;
+      }
 
+      // Si l'abonnement est déjà expiré (fin < aujourd'hui), alors nouvelle_date = aujourd'hui + 30 jours
+      // Sinon nouvelle_date = ancienne_date_fin + 30 jours
+      const baseDate = ancienneDateFin > now ? ancienneDateFin : now;
+      const nouvelleDate = new Date(baseDate.getTime() + daysToAdd * 24 * 60 * 60 * 1000);
+      const nouvelleDateIso = nouvelleDate.toISOString();
+      const dateFrFormatted = nouvelleDate.toLocaleDateString('fr-FR');
+
+      console.log("Prolongation OK", nouvelleDate);
+
+      // 1. Update Supabase table patrons : fin_abonnement = nouvelle_date.toISOString(), statut = 'ACTIF', forfait = 'PROLONGE'
+      try {
+        await supabase
+          .from('patrons')
+          .update({
+            fin_abonnement: nouvelleDateIso,
+            subscription_end_date: nouvelleDateIso,
+            abonnement_expire: nouvelleDateIso,
+            statut: 'ACTIF',
+            is_active: true,
+            forfait: 'PROLONGE',
+            subscription_status: 'populaire',
+          } as any)
+          .eq('id', boutique.id);
+      } catch (errP) {
+        try {
+          await supabase
+            .from('patrons')
+            .update({
+              fin_abonnement: nouvelleDateIso,
+              subscription_end_date: nouvelleDateIso,
+              abonnement_expire: nouvelleDateIso,
+              is_active: true,
+            } as any)
+            .eq('id', boutique.id);
+        } catch {}
+      }
+
+      // 2. Update Supabase table efa_boutiques
+      try {
+        await supabase
+          .from('efa_boutiques')
+          .update({
+            date_fin_essai: nouvelleDateIso,
+            is_active: true,
+          })
+          .eq('id', boutique.id);
+      } catch (e) {}
+
+      // 3. Update Dexie local si présent
+      try {
+        await db.patrons.update(boutique.id, {
+          fin_abonnement: nouvelleDateIso,
+          subscription_end_date: nouvelleDateIso,
+          abonnement_expire: nouvelleDateIso,
+          is_active: true,
+          forfait: 'PROLONGE',
+          subscription_status: 'populaire',
+        } as any);
+      } catch (e) {}
+
+      // 4. Update Backend API
       try {
         await fetch('/api/admin/boutiques/prolong', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ boutique_id: boutique.id, add_days: daysToAdd }),
+          body: JSON.stringify({
+            boutique_id: boutique.id,
+            add_days: daysToAdd,
+            new_end_date: nouvelleDateIso,
+          }),
         });
       } catch {}
 
-      await supabase
-        .from('efa_boutiques')
-        .update({ date_fin_essai: newExpiry, is_active: true })
-        .eq('id', boutique.id);
+      // 5. Mise à jour immédiate du state local React (FIN ABONNEMENT et jours restants changent direct)
+      setBoutiques((prev) =>
+        prev.map((item) =>
+          item.id === boutique.id
+            ? {
+                ...item,
+                subscription_end: nouvelleDateIso,
+                status: 'actif',
+                is_active: true,
+                plan: 'PROLONGE',
+              }
+            : item
+        )
+      );
 
-      await supabase
-        .from('patrons')
-        .update({ subscription_end_date: newExpiry, abonnement_expire: newExpiry, is_active: true })
-        .eq('id', boutique.id);
-
-      showToast(`Abonnement prolongé de +${daysToAdd} jours !`, 'success');
       setProlongModal({ isOpen: false, boutique: null, days: 30 });
+
+      // 6. Toast obligatoire
+      showToast(`Prolongé de ${daysToAdd} jours - Nouvelle fin : ${dateFrFormatted}`, 'success');
+
+      // 7. Recharger la liste depuis la base
       await loadBoutiques();
     } catch (err: any) {
+      console.error('[SUPER ADMIN] Erreur prolongation:', err);
       showToast('Erreur lors de la prolongation', 'error');
     }
   };
+
+  const handleProlongBoutique = handleProlonger;
+  const prolongerAbonnement = handleProlonger;
 
   // Action : Supprimer
   const handleDeleteBoutique = async (boutique: AdminBoutique) => {
@@ -880,238 +966,367 @@ export const SuperAdminScreen: React.FC<SuperAdminScreenProps> = ({ onNavigateTo
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-100 border-b border-slate-200 text-[11px] font-black uppercase tracking-wider text-slate-600">
-                    <th className="py-4 px-4">Nom Personne</th>
-                    <th className="py-4 px-4">Nom Boutique</th>
-                    <th className="py-4 px-4">Code PIN</th>
-                    <th className="py-4 px-4">Quartier / Tél</th>
-                    <th className="py-4 px-4">Statut</th>
-                    <th className="py-4 px-4">Fin Abonnement</th>
-                    <th className="py-4 px-4 text-right">Actions Super Admin</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-xs sm:text-sm font-bold text-slate-800">
-                  {filteredBoutiques.map((b) => {
-                    const isPinRevealed = visiblePins[b.id];
-                    const now = new Date();
-                    const subEnd = b.subscription_end ? new Date(b.subscription_end) : null;
-                    const isExpired = subEnd ? subEnd < now : false;
+            <>
+              {/* VUE MOBILE CARTES (< 768px) OPTIMISÉE POUR 360px */}
+              <div className="block md:hidden divide-y divide-slate-200">
+                {filteredBoutiques.map((b) => {
+                  const isPinRevealed = visiblePins[b.id];
+                  const now = new Date();
+                  const subEnd = b.subscription_end ? new Date(b.subscription_end) : null;
+                  const isExpired = subEnd ? subEnd < now : false;
+                  let daysRemaining: number | null = null;
+                  if (subEnd) {
+                    daysRemaining = Math.ceil((subEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                  }
 
-                    let daysRemaining: number | null = null;
-                    if (subEnd) {
-                      daysRemaining = Math.ceil(
-                        (subEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
-                      );
-                    }
+                  return (
+                    <div key={`mob-${b.id}`} className="p-4 space-y-3 bg-white">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <span className="font-black text-slate-900 text-sm block">{b.nom_personne}</span>
+                          <span className="text-xs font-bold text-amber-700 flex items-center gap-1">
+                            <Store className="w-3.5 h-3.5 text-amber-600" />
+                            <span>{b.nom_boutique}</span>
+                          </span>
+                        </div>
+                        <div>
+                          {!b.is_active || b.status === 'bloque' ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-black uppercase">
+                              Bloqué
+                            </span>
+                          ) : isExpired ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-black uppercase">
+                              Expiré
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase">
+                              Actif
+                            </span>
+                          )}
+                        </div>
+                      </div>
 
-                    return (
-                      <tr
-                        key={b.id}
-                        className="hover:bg-slate-50/80 transition duration-150"
-                      >
-                        {/* 1. Nom Personne */}
-                        <td className="py-4 px-4">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-8 h-8 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center font-black text-xs shrink-0">
-                              <User className="w-4 h-4" />
-                            </div>
-                            <div>
-                              <span className="font-black text-slate-900 block">
-                                {b.nom_personne}
-                              </span>
-                              <span className="text-[10px] text-slate-400 font-mono">
-                                ID: {b.id.substring(0, 10)}...
-                              </span>
-                            </div>
-                          </div>
-                        </td>
-
-                        {/* 2. Nom Boutique */}
-                        <td className="py-4 px-4">
-                          <div className="flex items-center gap-2">
-                            <Store className="w-4 h-4 text-amber-600 shrink-0" />
-                            <div>
-                              <span className="font-black text-slate-900 block">
-                                {b.nom_boutique}
-                              </span>
-                              <span className="text-[10px] text-slate-400 uppercase font-bold">
-                                Forfait : {b.plan || 'Essai'}
-                              </span>
-                            </div>
-                          </div>
-                        </td>
-
-                        {/* 3. Code PIN avec bouton oeil */}
-                        <td className="py-4 px-4 whitespace-nowrap">
-                          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 border border-slate-200">
-                            <span className="font-mono font-black text-slate-900 text-sm tracking-wider">
+                      <div className="grid grid-cols-2 gap-2 text-xs font-semibold text-slate-600 bg-slate-50 p-2.5 rounded-2xl border border-slate-200">
+                        <div>
+                          <span className="text-[10px] uppercase text-slate-400 font-bold block">Code PIN</span>
+                          <div className="inline-flex items-center gap-1">
+                            <span className="font-mono font-black text-slate-900 text-xs">
                               {isPinRevealed ? b.pin_code : '••••'}
                             </span>
                             <button
                               type="button"
                               onClick={() => togglePinVisibility(b.id)}
-                              className="text-slate-500 hover:text-slate-900 p-0.5 cursor-pointer transition"
-                              title={isPinRevealed ? 'Masquer le PIN' : 'Afficher le PIN'}
+                              className="text-slate-500 hover:text-slate-900 p-0.5 cursor-pointer"
                             >
-                              {isPinRevealed ? (
-                                <EyeOff className="w-3.5 h-3.5" />
-                              ) : (
-                                <Eye className="w-3.5 h-3.5" />
-                              )}
+                              {isPinRevealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                             </button>
                           </div>
-                        </td>
+                        </div>
 
-                        {/* 4. Quartier / Téléphone */}
-                        <td className="py-4 px-4 text-xs">
-                          {b.quartier || b.telephone ? (
-                            <div>
-                              {b.quartier && (
-                                <span className="block font-bold text-slate-700">
-                                  📍 {b.quartier}
+                        <div>
+                          <span className="text-[10px] uppercase text-slate-400 font-bold block">Fin Abonnement</span>
+                          <span className="font-black text-slate-900 text-xs block">
+                            {subEnd ? subEnd.toLocaleDateString('fr-FR') : 'Pas de date'}
+                          </span>
+                          <span className={`text-[10px] font-black ${isExpired ? 'text-rose-600' : (daysRemaining ?? 0) <= 7 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                            {subEnd
+                              ? isExpired
+                                ? `Expiré il y a ${Math.abs(daysRemaining || 0)} j`
+                                : `${daysRemaining} jours restants`
+                              : ''}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* BOUTON ORANGE PROLONGER (+30j) EN GROS SUR MOBILE 360px */}
+                      <button
+                        type="button"
+                        onClick={() => handleProlonger(b, 30)}
+                        className="w-full py-3 px-3 rounded-2xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-slate-950 font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md transition border border-amber-600/30 cursor-pointer"
+                        title="Prolonger de 30 jours"
+                      >
+                        <Calendar className="w-4 h-4 stroke-[2.5]" />
+                        <span>Prolonger (+30 jours)</span>
+                      </button>
+
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => handleActivateBoutique(b, 365, 90000, '1 AN (90.000 F)')}
+                          className="py-2.5 px-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-xs flex items-center justify-center gap-1 shadow-xs transition cursor-pointer"
+                        >
+                          <Crown className="w-3.5 h-3.5" />
+                          <span>Activer 1 an</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleActivateBoutique(b, 180, 50000, '6 MOIS (50.000 F)')}
+                          className="py-2.5 px-2 rounded-xl bg-[#0A53FF] hover:bg-blue-700 active:scale-95 text-white font-black text-xs flex items-center justify-center gap-1 shadow-xs transition cursor-pointer"
+                        >
+                          <Sparkles className="w-3.5 h-3.5" />
+                          <span>Activer 6 mois</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleToggleBlockBoutique(b)}
+                          className={`py-2 px-2 rounded-xl font-black text-xs flex items-center justify-center gap-1 shadow-xs transition cursor-pointer ${
+                            b.is_active && b.status !== 'bloque' ? 'bg-slate-200 text-slate-800' : 'bg-emerald-100 text-emerald-900'
+                          }`}
+                        >
+                          {b.is_active && b.status !== 'bloque' ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                          <span>{b.is_active && b.status !== 'bloque' ? 'Bloquer' : 'Débloquer'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteBoutique(b)}
+                          className="py-2 px-2 rounded-xl bg-rose-50 text-rose-700 border border-rose-200 font-black text-xs flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Supprimer</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* VUE TABLEAU DESKTOP (>= 768px) */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-100 border-b border-slate-200 text-[11px] font-black uppercase tracking-wider text-slate-600">
+                      <th className="py-4 px-4">Nom Personne</th>
+                      <th className="py-4 px-4">Nom Boutique</th>
+                      <th className="py-4 px-4">Code PIN</th>
+                      <th className="py-4 px-4">Quartier / Tél</th>
+                      <th className="py-4 px-4">Statut</th>
+                      <th className="py-4 px-4">Fin Abonnement</th>
+                      <th className="py-4 px-4 text-right">Actions Super Admin</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-xs sm:text-sm font-bold text-slate-800">
+                    {filteredBoutiques.map((b) => {
+                      const isPinRevealed = visiblePins[b.id];
+                      const now = new Date();
+                      const subEnd = b.subscription_end ? new Date(b.subscription_end) : null;
+                      const isExpired = subEnd ? subEnd < now : false;
+
+                      let daysRemaining: number | null = null;
+                      if (subEnd) {
+                        daysRemaining = Math.ceil(
+                          (subEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+                        );
+                      }
+
+                      return (
+                        <tr
+                          key={b.id}
+                          className="hover:bg-slate-50/80 transition duration-150"
+                        >
+                          {/* 1. Nom Personne */}
+                          <td className="py-4 px-4">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-8 h-8 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center font-black text-xs shrink-0">
+                                <User className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <span className="font-black text-slate-900 block">
+                                  {b.nom_personne}
                                 </span>
-                              )}
-                              {b.telephone && (
-                                <span className="block text-[11px] text-slate-500 font-mono">
-                                  📞 {b.telephone}
+                                <span className="text-[10px] text-slate-400 font-mono">
+                                  ID: {b.id.substring(0, 10)}...
                                 </span>
-                              )}
+                              </div>
                             </div>
-                          ) : (
-                            <span className="text-slate-400 italic text-xs">Non renseigné</span>
-                          )}
-                        </td>
+                          </td>
 
-                        {/* 5. Statut */}
-                        <td className="py-4 px-4 whitespace-nowrap">
-                          {!b.is_active || b.status === 'bloque' ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-100 text-rose-800 text-[11px] font-black uppercase">
-                              <Lock className="w-3 h-3" />
-                              <span>Bloqué</span>
-                            </span>
-                          ) : isExpired ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 text-[11px] font-black uppercase">
-                              <AlertTriangle className="w-3 h-3 text-amber-700" />
-                              <span>Expiré</span>
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-black uppercase">
-                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                              <span>Actif</span>
-                            </span>
-                          )}
-                        </td>
+                          {/* 2. Nom Boutique */}
+                          <td className="py-4 px-4">
+                            <div className="flex items-center gap-2">
+                              <Store className="w-4 h-4 text-amber-600 shrink-0" />
+                              <div>
+                                <span className="font-black text-slate-900 block">
+                                  {b.nom_boutique}
+                                </span>
+                                <span className="text-[10px] text-slate-400 uppercase font-bold">
+                                  Forfait : {b.plan || 'Essai'}
+                                </span>
+                              </div>
+                            </div>
+                          </td>
 
-                        {/* 6. Fin Abonnement */}
-                        <td className="py-4 px-4 whitespace-nowrap text-xs">
-                          {subEnd ? (
-                            <div>
-                              <span className="font-black text-slate-800 block">
-                                {subEnd.toLocaleDateString('fr-FR')}
+                          {/* 3. Code PIN avec bouton oeil */}
+                          <td className="py-4 px-4 whitespace-nowrap">
+                            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 border border-slate-200">
+                              <span className="font-mono font-black text-slate-900 text-sm tracking-wider">
+                                {isPinRevealed ? b.pin_code : '••••'}
                               </span>
-                              <span
-                                className={`text-[10px] font-black ${
-                                  isExpired
-                                    ? 'text-rose-600'
-                                    : (daysRemaining ?? 0) <= 7
-                                    ? 'text-amber-600'
-                                    : 'text-emerald-600'
-                                }`}
+                              <button
+                                type="button"
+                                onClick={() => togglePinVisibility(b.id)}
+                                className="text-slate-500 hover:text-slate-900 p-0.5 cursor-pointer transition"
+                                title={isPinRevealed ? 'Masquer le PIN' : 'Afficher le PIN'}
                               >
-                                {isExpired
-                                  ? `Expiré il y a ${Math.abs(daysRemaining || 0)} j`
-                                  : `${daysRemaining} jours restants`}
-                              </span>
+                                {isPinRevealed ? (
+                                  <EyeOff className="w-3.5 h-3.5" />
+                                ) : (
+                                  <Eye className="w-3.5 h-3.5" />
+                                )}
+                              </button>
                             </div>
-                          ) : (
-                            <span className="text-slate-400 italic">Pas de date</span>
-                          )}
-                        </td>
+                          </td>
 
-                        {/* 7. d) Actions Super Admin */}
-                        <td className="py-4 px-4 text-right whitespace-nowrap">
-                          <div className="inline-flex items-center justify-end gap-1.5 flex-wrap">
-                            {/* Activer 1 an */}
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleActivateBoutique(b, 365, 90000, '1 AN (90.000 F)')
-                              }
-                              className="px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-xs transition cursor-pointer shadow-xs flex items-center gap-1"
-                              title="Activer l'offre 1 an pour 90.000 F"
-                            >
-                              <Crown className="w-3 h-3" />
-                              <span>Activer 1 an</span>
-                            </button>
+                          {/* 4. Quartier / Téléphone */}
+                          <td className="py-4 px-4 text-xs">
+                            {b.quartier || b.telephone ? (
+                              <div>
+                                {b.quartier && (
+                                  <span className="block font-bold text-slate-700">
+                                    📍 {b.quartier}
+                                  </span>
+                                )}
+                                {b.telephone && (
+                                  <span className="block text-[11px] text-slate-500 font-mono">
+                                    📞 {b.telephone}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 italic text-xs">Non renseigné</span>
+                            )}
+                          </td>
 
-                            {/* Activer 6 mois (50.000F) */}
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleActivateBoutique(b, 180, 50000, '6 MOIS (50.000 F)')
-                              }
-                              className="px-2.5 py-1.5 rounded-xl bg-[#0A53FF] hover:bg-blue-700 active:scale-95 text-white font-black text-xs transition cursor-pointer shadow-xs flex items-center gap-1"
-                              title="Activer l'offre 6 mois pour 50.000 F"
-                            >
-                              <Sparkles className="w-3 h-3" />
-                              <span>Activer 6 mois (50.000F)</span>
-                            </button>
+                          {/* 5. Statut */}
+                          <td className="py-4 px-4 whitespace-nowrap">
+                            {!b.is_active || b.status === 'bloque' ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-100 text-rose-800 text-[11px] font-black uppercase">
+                                <Lock className="w-3 h-3" />
+                                <span>Bloqué</span>
+                              </span>
+                            ) : isExpired ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 text-[11px] font-black uppercase">
+                                <AlertTriangle className="w-3 h-3 text-amber-700" />
+                                <span>Expiré</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-black uppercase">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                <span>Actif</span>
+                              </span>
+                            )}
+                          </td>
 
-                            {/* Prolonger */}
-                            <button
-                              type="button"
-                              onClick={() => setProlongModal({ isOpen: true, boutique: b, days: 30 })}
-                              className="px-2.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-amber-950 font-black text-xs transition cursor-pointer shadow-xs flex items-center gap-1"
-                              title="Prolonger l'abonnement"
-                            >
-                              <Calendar className="w-3 h-3" />
-                              <span>Prolonger</span>
-                            </button>
+                          {/* 6. Fin Abonnement */}
+                          <td className="py-4 px-4 whitespace-nowrap text-xs">
+                            {subEnd ? (
+                              <div>
+                                <span className="font-black text-slate-800 block">
+                                  {subEnd.toLocaleDateString('fr-FR')}
+                                </span>
+                                <span
+                                  className={`text-[10px] font-black ${
+                                    isExpired
+                                      ? 'text-rose-600'
+                                      : (daysRemaining ?? 0) <= 7
+                                      ? 'text-amber-600'
+                                      : 'text-emerald-600'
+                                  }`}
+                                >
+                                  {isExpired
+                                    ? `Expiré il y a ${Math.abs(daysRemaining || 0)} j`
+                                    : `${daysRemaining} jours restants`}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 italic">Pas de date</span>
+                            )}
+                          </td>
 
-                            {/* Bloquer / Débloquer */}
-                            <button
-                              type="button"
-                              onClick={() => handleToggleBlockBoutique(b)}
-                              className={`px-2.5 py-1.5 rounded-xl font-black text-xs transition cursor-pointer shadow-xs flex items-center gap-1 ${
-                                b.is_active && b.status !== 'bloque'
-                                  ? 'bg-slate-200 hover:bg-slate-300 text-slate-800'
-                                  : 'bg-emerald-100 hover:bg-emerald-200 text-emerald-900'
-                              }`}
-                              title={b.is_active ? 'Bloquer la boutique' : 'Débloquer la boutique'}
-                            >
-                              {b.is_active && b.status !== 'bloque' ? (
-                                <>
-                                  <Lock className="w-3 h-3 text-slate-700" />
-                                  <span>Bloquer</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Unlock className="w-3 h-3 text-emerald-700" />
-                                  <span>Débloquer</span>
-                                </>
-                              )}
-                            </button>
+                          {/* 7. d) Actions Super Admin */}
+                          <td className="py-4 px-4 text-right whitespace-nowrap">
+                            <div className="inline-flex items-center justify-end gap-1.5 flex-wrap">
+                              {/* Activer 1 an */}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleActivateBoutique(b, 365, 90000, '1 AN (90.000 F)')
+                                }
+                                className="px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-xs transition cursor-pointer shadow-xs flex items-center gap-1"
+                                title="Activer l'offre 1 an pour 90.000 F"
+                              >
+                                <Crown className="w-3 h-3" />
+                                <span>Activer 1 an</span>
+                              </button>
 
-                            {/* Supprimer */}
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteBoutique(b)}
-                              className="p-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 transition cursor-pointer border border-rose-200"
-                              title="Supprimer la boutique"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                              {/* Activer 6 mois (50.000F) */}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleActivateBoutique(b, 180, 50000, '6 MOIS (50.000 F)')
+                                }
+                                className="px-2.5 py-1.5 rounded-xl bg-[#0A53FF] hover:bg-blue-700 active:scale-95 text-white font-black text-xs transition cursor-pointer shadow-xs flex items-center gap-1"
+                                title="Activer l'offre 6 mois pour 50.000 F"
+                              >
+                                <Sparkles className="w-3 h-3" />
+                                <span>Activer 6 mois</span>
+                              </button>
+
+                              {/* BOUTON ORANGE PROLONGER (+30j) */}
+                              <button
+                                type="button"
+                                onClick={() => handleProlonger(b, 30)}
+                                className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-slate-950 font-black text-xs transition cursor-pointer shadow-xs flex items-center gap-1 border border-amber-600/30"
+                                title="Prolonger de 30 jours (+1 mois)"
+                              >
+                                <Calendar className="w-3.5 h-3.5 stroke-[2.5]" />
+                                <span>Prolonger (+30j)</span>
+                              </button>
+
+                              {/* Bloquer / Débloquer */}
+                              <button
+                                type="button"
+                                onClick={() => handleToggleBlockBoutique(b)}
+                                className={`px-2.5 py-1.5 rounded-xl font-black text-xs transition cursor-pointer shadow-xs flex items-center gap-1 ${
+                                  b.is_active && b.status !== 'bloque'
+                                    ? 'bg-slate-200 hover:bg-slate-300 text-slate-800'
+                                    : 'bg-emerald-100 hover:bg-emerald-200 text-emerald-900'
+                                }`}
+                                title={b.is_active ? 'Bloquer la boutique' : 'Débloquer la boutique'}
+                              >
+                                {b.is_active && b.status !== 'bloque' ? (
+                                  <>
+                                    <Lock className="w-3 h-3 text-slate-700" />
+                                    <span>Bloquer</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Unlock className="w-3 h-3 text-emerald-700" />
+                                    <span>Débloquer</span>
+                                  </>
+                                )}
+                              </button>
+
+                              {/* Supprimer */}
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteBoutique(b)}
+                                className="p-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 transition cursor-pointer border border-rose-200"
+                                title="Supprimer la boutique"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
       </main>

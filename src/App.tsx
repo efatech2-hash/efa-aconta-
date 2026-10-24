@@ -50,6 +50,7 @@ import { WelcomeAuthScreen } from './components/WelcomeAuthScreen';
 import { getCurrentBoutiqueId, boutiqueToPatron } from './lib/deviceAuth';
 import { SuperAdminScreen } from './components/SuperAdminScreen';
 import EfaAdmin from './pages/EfaAdmin';
+import { MonAbonnementModal } from './components/MonAbonnementModal';
 
 function checkIsAdminRoute(): boolean {
   if (typeof window === 'undefined') return false;
@@ -120,6 +121,7 @@ export default function App() {
   };
 
   const [isAutoLogoutPromptOpen, setIsAutoLogoutPromptOpen] = useState(false);
+  const [isMonAbonnementModalOpen, setIsMonAbonnementModalOpen] = useState(false);
   const [previewInviteSlug, setPreviewInviteSlug] = useState<string | null>(null);
   const [pendingVoiceAction, setPendingVoiceAction] = useState<ParsedVoiceCommand | null>(null);
 
@@ -610,9 +612,30 @@ export default function App() {
             </div>
           </div>
         )}
-        {currentUser && <HeaderNav patron={patron} currentUser={currentUser} isOnline={isOnline} onOpenLockScreen={() => setIsLockScreenOpen(true)} onOpenSettings={() => setIsSettingsOpen(true)} onLogout={handleLogout} onNavigate={handleNavigate} activeTab={activeTab} onRefreshData={handleFastRefresh} />}
+        {currentUser && (
+          <HeaderNav
+            patron={patron}
+            currentUser={currentUser}
+            isOnline={isOnline}
+            onOpenLockScreen={() => setIsLockScreenOpen(true)}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+            onLogout={handleLogout}
+            onNavigate={handleNavigate}
+            activeTab={activeTab}
+            onRefreshData={handleFastRefresh}
+            onOpenMonAbonnementModal={() => setIsMonAbonnementModalOpen(true)}
+          />
+        )}
         <main className="max-w-4xl mx-auto p-4 sm:p-6">
-          {activeTab === 'home' && currentUser && <HomeScreen patron={patron} currentUser={currentUser} onNavigate={handleNavigate} onOpenSubscriptionModal={handleOpenSubscriptionModal} />}
+          {activeTab === 'home' && currentUser && (
+            <HomeScreen
+              patron={patron}
+              currentUser={currentUser}
+              onNavigate={handleNavigate}
+              onOpenSubscriptionModal={handleOpenSubscriptionModal}
+              onOpenMonAbonnementModal={() => setIsMonAbonnementModalOpen(true)}
+            />
+          )}
           {activeTab === 'vendre' && currentUser && <VendreScreen patron={patron} currentUser={currentUser} products={products} onBack={() => setActiveTab('home')} onGoToStock={() => setActiveTab('stock')} onOpenSubscriptionModal={handleOpenSubscriptionModal} onSaleCompleted={() => { loadDatabase(); triggerPostActionPrompt(); }} />}
           {activeTab === 'mon-argent' && currentUser && currentUser.role === 'patron' && <MonArgentScreen patron={patron} currentUser={currentUser} ventes={ventes} depenses={depenses} credits={credits} products={products} onBack={() => setActiveTab('home')} onDataRefresh={() => loadDatabase()} />}
           {(activeTab === 'stock' || activeTab === 'ajouter') && currentUser && currentUser.role === 'patron' && <StockScreen patron={patron} products={products} onBack={() => setActiveTab('home')} onRefresh={() => loadDatabase()} onOpenSubscriptionModal={handleOpenSubscriptionModal} />}
@@ -625,9 +648,30 @@ export default function App() {
         <EFAVoiceAssistant isOnline={isOnline} products={products} plan={patron.subscription_status} isPro={isBoutiquePro(patron)} onOpenSubscriptionModal={handleOpenSubscriptionModal} onCommandParsed={(cmd) => setPendingVoiceAction(cmd)} />
         <ConfirmationModal isOpen={!!pendingVoiceAction} summary={pendingVoiceAction?.summary || ''} transcript={pendingVoiceAction?.raw_transcript || ''} onConfirm={handleConfirmVoiceAction} onCancel={handleCancelVoiceAction} />
         {currentUser && <AutoLogoutPromptModal isOpen={isAutoLogoutPromptOpen} currentUser={currentUser} onStay={() => setIsAutoLogoutPromptOpen(false)} onLogout={handleLogout} />}
-        {currentUser && <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} patron={patron} currentUser={currentUser} employes={employes} onLogout={handleLogout} onPatronUpdated={(updated) => { setPatron(updated); syncEmployeesSubscription(updated.id, updated.subscription_status || 'trial').catch(console.error); }} onOpenSubscriptionModal={handleOpenSubscriptionModal} onDataRefresh={loadDatabase} onNavigate={handleNavigate} />}
+        {currentUser && (
+          <SettingsModal
+            isOpen={isSettingsOpen}
+            onClose={() => setIsSettingsOpen(false)}
+            patron={patron}
+            currentUser={currentUser}
+            employes={employes}
+            onLogout={handleLogout}
+            onPatronUpdated={(updated) => { setPatron(updated); syncEmployeesSubscription(updated.id, updated.subscription_status || 'trial').catch(console.error); }}
+            onOpenSubscriptionModal={handleOpenSubscriptionModal}
+            onDataRefresh={loadDatabase}
+            onNavigate={handleNavigate}
+            onOpenMonAbonnementModal={() => setIsMonAbonnementModalOpen(true)}
+          />
+        )}
         <SubscriptionModal isOpen={subscriptionModal.isOpen || isSubscriptionExpired(patron)} isBlocking={isSubscriptionExpired(patron)} patron={patron} highlightPlan={subscriptionModal.plan} featureReason={subscriptionModal.reason} onClose={() => setSubscriptionModal((prev) => ({ ...prev, isOpen: false }))} />
         <WhoIsSellingModal isOpen={isLockScreenOpen} patron={patron} employes={employes} currentUser={currentUser} canClose={true} onSelectUser={(user) => { setCurrentUser(user); localStorage.setItem('efa_active_user_id', user.id); setIsLockScreenOpen(false); setActiveTab('home'); }} onClose={() => setIsLockScreenOpen(false)} />
+        {patron && (
+          <MonAbonnementModal
+            isOpen={isMonAbonnementModalOpen}
+            onClose={() => setIsMonAbonnementModalOpen(false)}
+            patron={patron}
+          />
+        )}
       </div>
     </CheckAbonnement>
   );

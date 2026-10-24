@@ -96,6 +96,7 @@ export function getCurrentBoutiqueId(): string | null {
  */
 export function boutiqueToPatron(b: EfaBoutiqueRecord, pinClear?: string): Patron {
   const pin = pinClear || b.pin_code || '';
+  const finAbonnement = (b as any).fin_abonnement || (b as any).subscription_end_date || b.date_fin_essai;
   return {
     id: b.id,
     nom: b.nom_patron || b.nom_affichage,
@@ -109,11 +110,14 @@ export function boutiqueToPatron(b: EfaBoutiqueRecord, pinClear?: string): Patro
     pin_hash: b.pin_patron_hash,
     genre: 'femme',
     role: 'patron',
-    abonnement_expire: b.date_fin_essai,
-    subscription_status: b.plan === 'essai' ? 'trial' : (b.plan as any),
+    abonnement_expire: finAbonnement || b.date_fin_essai,
+    subscription_status: (b as any).statut === 'ACTIF' ? 'populaire' : (b.plan === 'essai' ? 'trial' : (b.plan as any)),
     trial_start_date: b.created_at,
     trial_end_date: b.date_fin_essai,
-    subscription_end_date: b.date_fin_essai,
+    subscription_end_date: finAbonnement || b.date_fin_essai,
+    fin_abonnement: finAbonnement,
+    forfait: (b as any).forfait || b.plan,
+    statut: (b as any).statut,
     auto_logout_after_action: true,
     created_at: b.created_at,
   };

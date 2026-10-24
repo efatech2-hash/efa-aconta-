@@ -25,6 +25,7 @@ interface HomeScreenProps {
   currentUser: CurrentUser;
   onNavigate: (tab: 'home' | 'vendre' | 'mon-argent' | 'stock' | 'ajouter' | 'employes' | 'ambassadrice' | 'mes-ventes' | 'historique') => void;
   onOpenSubscriptionModal?: (plan?: 'populaire' | 'pro', reason?: string) => void;
+  onOpenMonAbonnementModal?: () => void;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
@@ -32,6 +33,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   currentUser,
   onNavigate,
   onOpenSubscriptionModal,
+  onOpenMonAbonnementModal,
 }) => {
   const isPatron = currentUser.role === 'patron';
   const accord = getAccord(currentUser.genre);
@@ -55,23 +57,36 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               <Sparkles className="w-3.5 h-3.5 text-amber-900 animate-pulse" />
             </div>
 
-            {/* Scope = role='patron' UNIQUEMENT : Badge Gagner 12 mois gratuits */}
+            {/* Scope = role='patron' UNIQUEMENT : Bouton Mon Abonnement & Gagner 12 mois */}
             {isPatron && (
-              <button
-                type="button"
-                onClick={() => {
-                  if (typeof window !== 'undefined') {
-                    window.history.pushState({}, '', '/ambassadrice');
-                  }
-                  onNavigate('ambassadrice');
-                }}
-                className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-red-600 hover:bg-red-700 active:scale-95 text-white text-[11px] sm:text-xs font-black tracking-wide shadow-md shadow-red-600/30 border border-red-500 transition cursor-pointer w-fit self-start sm:self-auto touch-manipulation group"
-                title="Gagner 12 mois gratuits - Clique pour savoir plus"
-              >
-                <Gift className="w-3.5 h-3.5 text-white shrink-0 animate-bounce" />
-                <span>Gagner 12 mois gratuits - Clique pour savoir plus</span>
-                <ChevronRight className="w-3.5 h-3.5 text-white/90 group-hover:translate-x-0.5 transition-transform" />
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                {onOpenMonAbonnementModal && (
+                  <button
+                    type="button"
+                    onClick={onOpenMonAbonnementModal}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 active:scale-95 text-amber-300 text-[11px] sm:text-xs font-black tracking-wide shadow-md border border-amber-400 transition cursor-pointer touch-manipulation group"
+                    title="Mon Abonnement / Forfait Actif"
+                  >
+                    <Crown className="w-3.5 h-3.5 text-amber-400 fill-amber-400 group-hover:scale-110 transition-transform" />
+                    <span>Mon Abonnement</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (typeof window !== 'undefined') {
+                      window.history.pushState({}, '', '/ambassadrice');
+                    }
+                    onNavigate('ambassadrice');
+                  }}
+                  className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-red-600 hover:bg-red-700 active:scale-95 text-white text-[11px] sm:text-xs font-black tracking-wide shadow-md shadow-red-600/30 border border-red-500 transition cursor-pointer w-fit self-start sm:self-auto touch-manipulation group"
+                  title="Gagner 12 mois gratuits - Clique pour savoir plus"
+                >
+                  <Gift className="w-3.5 h-3.5 text-white shrink-0 animate-bounce" />
+                  <span>Gagner 12 mois gratuits</span>
+                  <ChevronRight className="w-3.5 h-3.5 text-white/90 group-hover:translate-x-0.5 transition-transform" />
+                </button>
+              </div>
             )}
           </div>
 

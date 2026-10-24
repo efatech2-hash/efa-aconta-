@@ -751,14 +751,29 @@ app.post('/api/admin/boutiques/toggle-status', async (req: Request, res: Respons
 
 app.post('/api/admin/boutiques/prolong', async (req: Request, res: Response) => {
   try {
-    const { boutique_id, add_days } = req.body || {};
+    const { boutique_id, add_days, new_end_date } = req.body || {};
     if (!boutique_id) return res.status(400).json({ error: 'boutique_id requis' });
 
-    const daysToAdd = parseInt(add_days, 10) || 30;
-    const newEnd = new Date(Date.now() + daysToAdd * 86400000).toISOString();
+    let newEnd = new_end_date;
+    if (!newEnd) {
+      const daysToAdd = parseInt(add_days, 10) || 30;
+      newEnd = new Date(Date.now() + daysToAdd * 86400000).toISOString();
+    }
 
-    await supabase.from('efa_boutiques').update({ date_fin_essai: newEnd, is_active: true }).eq('id', boutique_id);
-    await supabase.from('patrons').update({ subscription_end_date: newEnd, abonnement_expire: newEnd, is_active: true }).eq('id', boutique_id);
+    try {
+      await supabase.from('efa_boutiques').update({ date_fin_essai: newEnd, is_active: true }).eq('id', boutique_id);
+    } catch {}
+
+    try {
+      await supabase.from('patrons').update({
+        fin_abonnement: newEnd,
+        statut: 'ACTIF',
+        forfait: 'PROLONGE',
+        subscription_end_date: newEnd,
+        abonnement_expire: newEnd,
+        is_active: true
+      }).eq('id', boutique_id);
+    } catch {}
 
     return res.json({ success: true, subscription_end: newEnd });
   } catch (err: any) {

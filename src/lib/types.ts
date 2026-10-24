@@ -32,6 +32,9 @@ export interface Patron {
   subscription_status?: SubscriptionStatus;
   current_plan?: SubscriptionStatus; // Forfait actuel: 'free' | 'trial' | 'populaire' | 'pro' | 'expired'
   subscription_end_date?: string;
+  fin_abonnement?: string;
+  forfait?: string;
+  statut?: string;
   email?: string;
   auto_logout_after_action?: boolean; // default true
   created_at: string;

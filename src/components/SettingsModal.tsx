@@ -58,6 +58,7 @@ interface SettingsModalProps {
   onOpenSubscriptionModal?: (plan?: 'populaire' | 'pro', reason?: string) => void;
   onDataRefresh?: () => void;
   onNavigate?: (tab: 'home' | 'vendre' | 'mon-argent' | 'stock' | 'ajouter' | 'employes' | 'ambassadrice' | 'mes-ventes' | 'historique' | 'mon-abonnement') => void;
+  onOpenMonAbonnementModal?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -71,6 +72,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onOpenSubscriptionModal,
   onDataRefresh,
   onNavigate,
+  onOpenMonAbonnementModal,
 }) => {
   // Changement de PIN
   const [isChangingPin, setIsChangingPin] = useState(false);
@@ -617,6 +619,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* BOUTON MON ABONNEMENT DANS PARAMÈTRES (Réservé au patron) */}
+        {patron && currentUser.role === 'patron' && onOpenMonAbonnementModal && (
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              onOpenMonAbonnementModal();
+            }}
+            className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 hover:from-amber-500 hover:to-amber-700 text-slate-950 font-black text-sm flex items-center justify-between shadow-md border-2 border-amber-600 transition active:scale-98 cursor-pointer touch-manipulation group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-slate-950 text-amber-300 flex items-center justify-center shadow-xs">
+                <Crown className="w-5 h-5 fill-amber-400 group-hover:scale-110 transition-transform" />
+              </div>
+              <div className="text-left">
+                <div className="leading-tight font-black text-sm text-slate-950">
+                  Mon Forfait & Abonnement
+                </div>
+                <div className="text-[11px] text-slate-900 font-bold">
+                  Consulter les jours restants et renouveler
+                </div>
+              </div>
+            </div>
+            <div className="px-2.5 py-1 rounded-xl bg-slate-950 text-amber-300 text-xs font-black">
+              Voir
+            </div>
+          </button>
+        )}
 
         {/* Toast discret après synchronisation (check vert 'Sync ok' / croix rouge 'Sync échoué') */}
         {syncToast && (
