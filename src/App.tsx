@@ -49,6 +49,26 @@ import CheckAbonnement from './components/CheckAbonnement';
 import { WelcomeAuthScreen } from './components/WelcomeAuthScreen';
 import { getCurrentBoutiqueId, boutiqueToPatron } from './lib/deviceAuth';
 import { SuperAdminScreen } from './components/SuperAdminScreen';
+import EfaAdmin from './pages/EfaAdmin';
+
+function checkIsAdminRoute(): boolean {
+  if (typeof window === 'undefined') return false;
+  const p = window.location.pathname.toLowerCase();
+  const hash = window.location.hash.toLowerCase();
+  const search = window.location.search.toLowerCase();
+  return (
+    p === '/efa-admin' ||
+    p === '/efa-admin/' ||
+    p === '/admin-efa' ||
+    p === '/admin-efa/' ||
+    hash.startsWith('#/efa-admin') ||
+    hash.startsWith('#/admin-efa') ||
+    hash === '#efa-admin' ||
+    hash === '#admin' ||
+    search.includes('page=efa-admin') ||
+    search.includes('admin=1')
+  );
+}
 
 export default function App() {
   const [isInitializing, setIsInitializing] = useState(true);
@@ -114,20 +134,7 @@ export default function App() {
     };
   }, []);
 
-  const [isAdminRoute, setIsAdminRoute] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      const p = window.location.pathname;
-      return (
-        p === '/efa-admin' ||
-        p === '/efa-admin/' ||
-        p === '/admin-efa' ||
-        p === '/admin-efa/' ||
-        p === '/login' ||
-        p === '/login/'
-      );
-    }
-    return false;
-  });
+  const [isAdminRoute, setIsAdminRoute] = useState<boolean>(() => checkIsAdminRoute());
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -139,40 +146,30 @@ export default function App() {
         if (slug) setPreviewInviteSlug(slug);
       } else if (urlInvite) {
         setPreviewInviteSlug(urlInvite);
-      } else if (
-        pathname === '/efa-admin' ||
-        pathname === '/efa-admin/' ||
-        pathname === '/admin-efa' ||
-        pathname === '/admin-efa/' ||
-        pathname === '/login' ||
-        pathname === '/login/'
-      ) {
+      } else if (checkIsAdminRoute()) {
         setIsAdminRoute(true);
       } else if (pathname === '/ambassadrice' || pathname === '/ambassadrice/') {
         setActiveTab('ambassadrice');
       } else if (pathname === '/mon-abonnement' || pathname === '/mon-abonnement/') {
         setActiveTab('mon-abonnement');
       }
-      const handlePopState = () => {
-        const path = window.location.pathname;
-        if (
-          path === '/efa-admin' ||
-          path === '/efa-admin/' ||
-          path === '/admin-efa' ||
-          path === '/admin-efa/' ||
-          path === '/login' ||
-          path === '/login/'
-        ) {
-          setIsAdminRoute(true);
-        } else {
-          setIsAdminRoute(false);
+
+      const handleRouteChange = () => {
+        const isAdmin = checkIsAdminRoute();
+        setIsAdminRoute(isAdmin);
+        if (!isAdmin) {
+          const path = window.location.pathname;
           if (path === '/ambassadrice' || path === '/ambassadrice/') setActiveTab('ambassadrice');
           else if (path === '/mon-abonnement' || path === '/mon-abonnement/') setActiveTab('mon-abonnement');
-          else if (path === '/' || path === '') setActiveTab('home');
+          else if (path === '/' || path === '' || path === '/login' || path === '/login/') setActiveTab('home');
         }
       };
-      window.addEventListener('popstate', handlePopState);
-      return () => window.removeEventListener('popstate', handlePopState);
+      window.addEventListener('popstate', handleRouteChange);
+      window.addEventListener('hashchange', handleRouteChange);
+      return () => {
+        window.removeEventListener('popstate', handleRouteChange);
+        window.removeEventListener('hashchange', handleRouteChange);
+      };
     }
   }, []);
 
@@ -451,14 +448,47 @@ export default function App() {
 
   const handleLogout = useCallback(() => {
     setIsAutoLogoutPromptOpen(false);
-    if (!localStorage.getItem('currentBoutiqueId')) {
-      setPatron(null);
-      setCurrentUser(null);
-      setIsPinLocked(false);
-      return;
+    setIsSettingsOpen(false);
+    setIsLockScreenOpen(false);
+    setIsPinLocked(false);
+
+    // Désactiver la session de cet appareil dans Supabase si présente
+    try {
+      const currentBoutiqueId = localStorage.getItem('currentBoutiqueId') || localStorage.getItem('entreprise_id');
+      const deviceId = localStorage.getItem('efa_device_id');
+      if (currentBoutiqueId && deviceId) {
+        Promise.resolve(
+          supabase
+            .from('efa_devices')
+            .update({ is_active: false })
+            .eq('boutique_id', currentBoutiqueId)
+            .eq('device_id', deviceId)
+        ).catch(() => {});
+      }
+    } catch {}
+
+    // Nettoyer tous les stockages client
+    try {
+      localStorage.clear();
+      sessionStorage.clear();
+    } catch (e) {
+      console.warn('Erreur clear storage:', e);
     }
-    lockApp();
-  }, [lockApp]);
+
+    setPatron(null);
+    setCurrentUser(null);
+    setEmployes([]);
+    setProducts([]);
+    setVentes([]);
+    setDepenses([]);
+    setCredits([]);
+    setParrainages([]);
+
+    // Rediriger vers /login
+    if (typeof window !== 'undefined') {
+      window.location.href = '/login';
+    }
+  }, []);
 
   const handleNavigate = useCallback((tab: 'home' | 'vendre' | 'mon-argent' | 'stock' | 'ajouter' | 'employes' | 'ambassadrice' | 'mes-ventes' | 'historique' | 'mon-abonnement') => {
     setActiveTab(tab);
@@ -517,10 +547,10 @@ export default function App() {
 
   const handleCancelVoiceAction = () => setPendingVoiceAction(null);
 
-  // ROUTE CACHÉE SUPER ADMIN : /efa-admin ou /admin-efa ou /login
+  // ROUTE CACHÉE SUPER ADMIN : /efa-admin ou /admin-efa
   if (isAdminRoute) {
     return (
-      <SuperAdminScreen
+      <EfaAdmin
         onNavigateToClient={() => {
           window.history.pushState({}, '', '/');
           setIsAdminRoute(false);

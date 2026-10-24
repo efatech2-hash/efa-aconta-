@@ -91,9 +91,15 @@ export const SuperAdminScreen: React.FC<SuperAdminScreenProps> = ({ onNavigateTo
     setTimeout(() => setToast(null), 3500);
   };
 
+  useEffect(() => {
+    console.log("Route super admin chargée");
+  }, []);
+
   // Numéro WhatsApp Super Admin depuis variable d'environnement ou fallback
   const whatsappNumber =
-    (typeof process !== 'undefined' && process.env?.WHATSAPP_NUMBER) || '22896100972';
+    import.meta.env.VITE_WHATSAPP_NUMBER ||
+    (typeof process !== 'undefined' && process.env?.WHATSAPP_NUMBER) ||
+    '22896100972';
 
   // ============================================================================
   // LOGIQUE AUTHENTIFICATION SUPER ADMIN SÉPARÉE ET SÉCURISÉE
@@ -125,21 +131,23 @@ export const SuperAdminScreen: React.FC<SuperAdminScreenProps> = ({ onNavigateTo
       // Backend non disponible ou dev mode direct
     }
 
-    // 2. Vérification avec process.env.SUPER_ADMIN_EMAIL et process.env.SUPER_ADMIN_PASSWORD
+    // 2. Vérification avec import.meta.env.VITE_SUPER_ADMIN_EMAIL et VITE_SUPER_ADMIN_PASSWORD
     if (!loginOk) {
-      const expectedEmail =
-        typeof process !== 'undefined' && process.env?.SUPER_ADMIN_EMAIL
-          ? process.env.SUPER_ADMIN_EMAIL.trim().toLowerCase()
-          : '';
-      const expectedPassword =
-        typeof process !== 'undefined' && process.env?.SUPER_ADMIN_PASSWORD
-          ? process.env.SUPER_ADMIN_PASSWORD
-          : '';
+      const expectedEmail = (
+        import.meta.env.VITE_SUPER_ADMIN_EMAIL ||
+        (typeof process !== 'undefined' && process.env?.SUPER_ADMIN_EMAIL) ||
+        'efatech2@gmail.com'
+      )
+        .trim()
+        .toLowerCase();
+      const expectedPassword = (
+        import.meta.env.VITE_SUPER_ADMIN_PASSWORD ||
+        (typeof process !== 'undefined' && process.env?.SUPER_ADMIN_PASSWORD) ||
+        '2hcetafe'
+      ).trim();
 
-      if (expectedEmail && expectedPassword) {
-        if (emailInput === expectedEmail && passwordInput === expectedPassword) {
-          loginOk = true;
-        }
+      if (emailInput === expectedEmail && passwordInput === expectedPassword) {
+        loginOk = true;
       }
     }
 
